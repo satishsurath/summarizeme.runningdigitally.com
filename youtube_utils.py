@@ -3,10 +3,18 @@ import os
 import json
 import logging
 import subprocess
+import tempfile
+import glob
 from datetime import datetime
 
-from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
+from youtube_transcript_api import (
+    YouTubeTranscriptApi,
+    NoTranscriptFound,
+    TranscriptsDisabled,
+    VideoUnavailable as YTVideoUnavailable,
+)
 from pytube import YouTube
+from pytube.exceptions import VideoUnavailable as PTVideoUnavailable
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -234,20 +242,83 @@ def get_transcript_for_video(video_id):
     Attempt youtube_transcript_api first, fallback to pytube SRT captions.
     Raise Exception if not found.
     """
+    # Attempt youtube_transcript_api first
     try:
-        return YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+        return YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
     except NoTranscriptFound:
-        logger.info(f"No transcript via youtube_transcript_api for '{video_id}', trying pytube.")
+        logger.info(
+            f"No transcript via youtube_transcript_api for '{video_id}', trying pytube."
+        )
+    except (TranscriptsDisabled, YTVideoUnavailable) as e:
+        logger.error(
+            f"Transcript unavailable for {video_id} via youtube_transcript_api: {e}"
+        )
+        raise
+    except Exception as e:
+        logger.error(
+            f"youtube_transcript_api error for {video_id}: {e}. Falling back to pytube"
+        )
+
+    # Fallback: try to grab captions via pytube
+    try:
         yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
         caption = None
         for code, c in yt.captions.items():
-            if 'en' in code.lower():
+            if "en" in code.lower():
                 caption = c
                 break
-        if caption is None:
-            raise Exception("No English caption found via pytube.")
-        srt_captions = caption.generate_srt_captions()
-        return parse_srt(srt_captions)
+        if caption is not None:
+            try:
+                srt_captions = caption.generate_srt_captions()
+                if srt_captions and srt_captions.strip():
+                    return parse_srt(srt_captions)
+            except Exception as e:
+                logger.error(
+                    f"Failed to generate/parse captions via pytube for {video_id}: {e}"
+                )
+        else:
+            logger.info(f"No English caption found via pytube for {video_id}.")
+    except PTVideoUnavailable as e:
+        logger.error(f"Video unavailable via pytube for {video_id}: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"pytube error for {video_id}: {e}")
+
+    # Last resort: try yt-dlp to fetch auto-generated subtitles
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_template = os.path.join(tmpdir, "%(id)s.%(ext)s")
+            cmd = [
+                "yt-dlp",
+                "--write-auto-sub",
+                "--sub-format",
+                "srt",
+                "--skip-download",
+                "-o",
+                output_template,
+                f"https://www.youtube.com/watch?v={video_id}",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                pattern = os.path.join(tmpdir, f"{video_id}*.srt")
+                matches = glob.glob(pattern)
+                if matches:
+                    with open(matches[0], "r", encoding="utf-8") as f:
+                        srt_text = f.read()
+                    if srt_text.strip():
+                        return parse_srt(srt_text)
+                    else:
+                        logger.info(
+                            f"yt-dlp returned empty subtitles for {video_id}."
+                        )
+            else:
+                logger.error(
+                    f"yt-dlp failed for {video_id}: {result.stderr.strip()}"
+                )
+    except Exception as e:
+        logger.error(f"yt-dlp subtitle fetch error for {video_id}: {e}")
+
+    raise Exception(f"Transcript not found for {video_id}")
 
 
 def parse_srt(srt_text):
