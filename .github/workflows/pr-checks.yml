@@ -93,7 +93,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Validate Dockerfile
-        run: docker build --target . -t summarizeme:test .
+        run: docker build -t summarizeme:test .
 
       - name: Check container can start
         run: docker run --rm -e DATABASE_URL=postgres://ignored -e REMOTE_OLLAMA_HOST=ignored -e DEV_AUTH_ENABLED=true summarizeme:test python -c "import app; print('OK')"
