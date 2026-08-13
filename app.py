@@ -865,7 +865,7 @@ def api_chat_channel(channel_name):
 
         user_query_emb = session.execute(
             sql_embed,
-            {"model_name": "nomic-ai/nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
+            {"model_name": "nemo-nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
         ).scalar()
 
         if not user_query_emb:
@@ -1045,7 +1045,7 @@ def api_chat_video(video_id):
 
         user_query_emb = session.execute(
             sql_embed,
-            {"model_name": "nomic-ai/nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
+            {"model_name": "nemo-nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
         ).scalar()
 
         if not user_query_emb:
