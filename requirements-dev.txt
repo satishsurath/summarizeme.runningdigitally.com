@@ -1,0 +1,7 @@
+# Development dependencies — installed alongside requirements.txt
+ruff>=0.9.0
+pytest>=8.0
+pytest-cov>=6.0
+pytest-mock>=3.14
+httpx>=0.28
+openai>=1.0.0

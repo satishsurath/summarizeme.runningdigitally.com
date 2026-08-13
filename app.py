@@ -5,9 +5,17 @@ import threading
 import logging
 from flask import Flask, request, jsonify, render_template, abort, redirect, url_for, flash 
 import markdown
+# Safe mode: escape HTML output to prevent XSS
+# Safe mode: escape HTML output to prevent XSS
+try:
+    def _md(s):
+        return markdown.markdown(s, safe_mode="escape") if s else ""
+except TypeError:
+    def _md(s):
+        return markdown.markdown(s) if s else ""
+md_safe = _md
 import re # used for renaming the channel folder 
 from dotenv import load_dotenv
-import psycopg2
 
 from datetime import datetime
 from youtube_utils import download_channel_transcripts, list_downloaded_videos
@@ -26,7 +34,7 @@ from db.models import Base, Video, VideoFolder, SummariesV2, User
 
 
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/mydb")
+DB_URL = os.environ["DATABASE_URL"]
 #engine = create_engine(DB_URL, echo=False)
 engine = create_engine(
     DB_URL, 
@@ -43,10 +51,32 @@ logger = logging.getLogger(__name__)
 
 #Read the env file
 load_dotenv()
-ollama_host = os.getenv("REMOTE_OLLAMA_HOST")
-print(f"ollama_host: {ollama_host}")
-# Build a full URL for Ollama, typically port 11434
-OLLAMA_URL = f"http://{ollama_host}:11434"
+
+# vLLM instance for embeddings (nomic-embed-text)
+_VLLM_EMBED_HOST = os.getenv("VLLM_EMBED_HOST", "localhost")
+_VLLM_EMBED_PORT = os.getenv("VLLM_EMBED_PORT", "8001")
+VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}"
+
+# vLLM instance for generation (Llama, etc.)
+_VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
+_VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
+VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
+
+# Ollama fallback (legacy)
+_REMOTE_OLLAMA_HOST = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
+OLLAMA_URL = f"http://{_REMOTE_OLLAMA_HOST}:11434"
+
+# Use vLLM if configured, otherwise fall back to Ollama
+if os.getenv("VLLM_GEN_HOST"):
+    _LLM_GEN_URL = VLLM_GEN_URL
+    _LLM_EMBED_URL = VLLM_EMBED_URL
+    print(f"[Embed LLM] Using vLLM: {_LLM_EMBED_URL}")
+    print(f"[Gen LLM]   Using vLLM: {_LLM_GEN_URL}")
+else:
+    _LLM_GEN_URL = OLLAMA_URL
+    _LLM_EMBED_URL = OLLAMA_URL
+    print(f"[Embed LLM] Using Ollama: {_LLM_EMBED_URL}")
+    print(f"[Gen LLM]   Using Ollama: {_LLM_GEN_URL}")
 
 # In-memory storage for statuses (for demo). 
 # For production, use a database or a caching layer (Redis).
@@ -642,23 +672,35 @@ def api_all_tasks():
 @app.route("/api/ollama/models", methods=["GET"])
 def api_ollama_models():
     """
-    Returns a JSON list of Ollama models from your remote instance.
-    Example JSON: { "models": [ { "name": "phi4" }, { "name": "llama2" } ] }
+    Returns model lists from both vLLM instances (if configured).
+    Falls back to Ollama if no vLLM is configured.
     """
-    # e.g., using the 'requests' library or your 'ollama' python client
     import requests
 
-    ollama_host = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
-    url = f"http://{ollama_host}:11434/v1/models"
-
-    try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()  # likely { "models": [ { "name": "..." }, ... ] }
-        return jsonify(data)
-    except Exception as e:
-        logger.error(f"Failed to list Ollama models: {e}")
-        return jsonify({"models": []}), 500
+    if os.getenv("VLLM_GEN_HOST"):
+        # vLLM returns {data: [{id, object, owned_by, ...}]}
+        models = []
+        for url in [_LLM_EMBED_URL, _LLM_GEN_URL]:
+            try:
+                resp = requests.get(f"{url}/v1/models", timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
+                if "data" in data:
+                    models.extend(data["data"])
+            except Exception as e:
+                logger.warning(f"Failed to list models from {url}: {e}")
+        return jsonify({"models": models})
+    else:
+        ollama_host = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
+        url = f"http://{ollama_host}:11434/v1/models"
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            return jsonify(data)
+        except Exception as e:
+            logger.error(f"Failed to list Ollama models: {e}")
+            return jsonify({"models": []}), 500
 
 
 @app.route("/summaries_v2/<int:summary_id>", methods=["GET"])
@@ -677,10 +719,10 @@ def view_summary_v2(summary_id):
         video = summary_obj.video  # Because SummariesV2.video is the relationship
 
         # Convert each of the 4 fields from markdown => HTML
-        concise_html = markdown.markdown(summary_obj.concise_summary or "")
-        topics_html = markdown.markdown(summary_obj.key_topics or "")
-        takeaways_html = markdown.markdown(summary_obj.important_takeaways or "")
-        notes_html = markdown.markdown(summary_obj.comprehensive_notes or "")
+        concise_html = md_safe(summary_obj.concise_summary or "")
+        topics_html = md_safe(summary_obj.key_topics or "")
+        takeaways_html = md_safe(summary_obj.important_takeaways or "")
+        notes_html = md_safe(summary_obj.comprehensive_notes or "")
 
         return render_template(
             "summary_v2.html",
@@ -720,6 +762,79 @@ def view_transcript_v2(video_id):
 #############################################################################
 # Now define your new routes for embedded-channels, chat-channel, chat-video
 #############################################################################
+
+
+# SQL templates for chat endpoints — safe whitelist lookup prevents SQL injection
+CHAT_CHANNEL_SQL_TEMPLATES = {
+    "public.summaries_v2_comprehensive_notes_embedding": """
+        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+               1 - (ev.embedding <=> :q_emb) AS similarity
+        FROM %(view)s ev
+        JOIN video_folders vf ON ev.video_id = vf.video_id
+        JOIN videos v        ON ev.video_id = v.video_id
+        WHERE vf.folder_name = :chan
+        ORDER BY similarity DESC LIMIT 5
+    """,
+    "public.summaries_v2_concise_summary_embedding": """
+        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+               1 - (ev.embedding <=> :q_emb) AS similarity
+        FROM %(view)s ev
+        JOIN video_folders vf ON ev.video_id = vf.video_id
+        JOIN videos v        ON ev.video_id = v.video_id
+        WHERE vf.folder_name = :chan
+        ORDER BY similarity DESC LIMIT 5
+    """,
+    "public.summaries_v2_key_topics_embedding": """
+        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+               1 - (ev.embedding <=> :q_emb) AS similarity
+        FROM %(view)s ev
+        JOIN video_folders vf ON ev.video_id = vf.video_id
+        JOIN videos v        ON ev.video_id = v.video_id
+        WHERE vf.folder_name = :chan
+        ORDER BY similarity DESC LIMIT 5
+    """,
+    "public.summaries_v2_important_takeaways_embedding": """
+        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+               1 - (ev.embedding <=> :q_emb) AS similarity
+        FROM %(view)s ev
+        JOIN video_folders vf ON ev.video_id = vf.video_id
+        JOIN videos v        ON ev.video_id = v.video_id
+        WHERE vf.folder_name = :chan
+        ORDER BY similarity DESC LIMIT 5
+    """,
+    "public.videos_embedding": """
+        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+               1 - (ev.embedding <=> :q_emb) AS similarity
+        FROM %(view)s ev
+        JOIN video_folders vf ON ev.video_id = vf.video_id
+        JOIN videos v        ON ev.video_id = v.video_id
+        WHERE vf.folder_name = :chan
+        ORDER BY similarity DESC LIMIT 5
+    """,
+}
+
+CHAT_VIDEO_SQL_TEMPLATES = {
+    "public.summaries_v2_comprehensive_notes_embedding": """
+        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
+        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
+    """,
+    "public.summaries_v2_concise_summary_embedding": """
+        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
+        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
+    """,
+    "public.summaries_v2_key_topics_embedding": """
+        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
+        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
+    """,
+    "public.summaries_v2_important_takeaways_embedding": """
+        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
+        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
+    """,
+    "public.videos_embedding": """
+        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
+        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
+    """,
+}
 
 
 @app.route("/chat-channel/<channel_name>", methods=["GET"])
@@ -787,36 +902,24 @@ def api_chat_channel(channel_name):
     try:
         # 2) Embed the user query with the chosen model
         sql_embed = text("""
-            SELECT ai.ollama_embed(
+            SELECT ai.openai_embed(
                 :model_name,
                 :query_text,
-                :ollama_url
+                :llm_url
             ) AS user_query_emb
         """)
 
         user_query_emb = session.execute(sql_embed, {
-            "model_name": "nomic-embed-text:latest", 
+            "model_name": "nomic-ai/nomic-embed-text-v1.5", 
             "query_text": user_query,
-            "ollama_url": OLLAMA_URL
+            "llm_url": _LLM_EMBED_URL
         }).scalar()
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
-        # 3) Retrieve relevant chunks from the selected view
-        sql_top_chunks = text(f"""
-            SELECT 
-                ev.chunk,
-                ev.video_id,
-                v.title AS video_title,
-                1 - (ev.embedding <=> :q_emb) AS similarity
-            FROM {selected_view} ev
-            JOIN video_folders vf ON ev.video_id = vf.video_id
-            JOIN videos v        ON ev.video_id = v.video_id
-            WHERE vf.folder_name = :chan
-            ORDER BY similarity DESC
-            LIMIT 5
-        """)
+        # 3) Retrieve relevant chunks from the selected view (safe: template lookup, not f-string)
+        sql_top_chunks = text(CHAT_CHANNEL_SQL_TEMPLATES[selected_view])
 
         chunk_rows = session.execute(sql_top_chunks, {
             "q_emb": user_query_emb,
@@ -846,7 +949,7 @@ def api_chat_channel(channel_name):
                 SELECT ai.ollama_generate(
                     :model_name,
                     :prompt,
-                    :ollama_url
+                    :llm_url
                 ) AS answer
             """)
 
@@ -863,7 +966,7 @@ Please provide a concise answer:
             result_json = session.execute(sql_generate, {
                 "model_name": model_name,
                 "prompt": prompt_str,
-                "ollama_url": OLLAMA_URL
+                "llm_url": LLAMA_URL
             }).scalar()
 
             if not result_json:
@@ -906,7 +1009,7 @@ Please provide a concise answer:
         session.close()
 
     # Convert final_answer from markdown to HTML, then append the used_videos_html
-    final_answer_html = markdown.markdown(final_answer)
+    final_answer_html = md_safe(final_answer)
     if used_videos_html:
         final_answer_html += used_videos_html
 
@@ -969,66 +1072,70 @@ def api_chat_video(video_id):
     # If the user chose something not in the map, default to comprehensive_notes
     selected_table = EMBEDDINGS_TABLE_MAP.get(data_type, EMBEDDINGS_TABLE_MAP["comprehensive_notes"])
 
-    # 2) Connect to your DB
-    conn = psycopg2.connect(DB_URL)  # or however you do this
+    # 2) Use SQLAlchemy session (consistent with rest of app)
+    session = SessionLocal()
     try:
-        cur = conn.cursor()
-
         # 3) Embed the user_query
-        #    We'll do something like:
-        #    SELECT ai.ollama_embed('nomic-embed-text', user_query, base_url)
-        embed_sql = """
-            SELECT ai.ollama_embed('nomic-embed-text', %s, %s)
-        """
-        cur.execute(embed_sql, (user_query, OLLAMA_URL))
-        user_query_embedding = cur.fetchone()[0]  # Store the embedding array
+        sql_embed = text("""
+            SELECT ai.openai_embed(
+                :model_name,
+                :query_text,
+                :llm_url
+            ) AS user_query_emb
+        """)
 
-        # 4) SELECT relevant chunks from the chosen embeddings table
-        #    If you need to filter by video_id, ensure you stored it as metadata.
-        #    Example if your chunking stored 'video_id' in a column named 'video_id':
-        #    SELECT chunk from selected_table WHERE video_id=%s ORDER BY (embedding <=> user_query_embedding) ASC
-        #    or something similar. 
-        #    Also note 1-(emb <=> query) is "similarity" if you want descending order. 
-        #    Alternatively you can do embedding distance ascending order.
-        select_chunks_sql = f"""
-            SELECT chunk,
-                   1 - (embedding <=> %s) AS similarity
-              FROM {selected_table}
-             WHERE video_id = %s
-             ORDER BY similarity DESC
-             LIMIT 5
-        """
-        cur.execute(select_chunks_sql, (user_query_embedding, video_id))
-        rows = cur.fetchall()
+        user_query_emb = session.execute(sql_embed, {
+            "model_name": "nomic-ai/nomic-embed-text-v1.5",
+            "query_text": user_query,
+            "llm_url": _LLM_EMBED_URL
+        }).scalar()
 
-        # 5) Concatenate the top relevant chunks
-        context = "\n\n".join([f"Chunk: {r[0]}" for r in rows])
+        if not user_query_emb:
+            return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
-        # 6) Generate a final answer with ai.ollama_generate or ai.ollama_chat_complete.
-        #    Simple example with ai.ollama_generate. 
-        #    We wrap the context and user query into a single prompt.
-        generate_sql = """
-            SELECT ai.ollama_generate(
-                'gemma2:27b',              -- or your model name
-                %s,                        -- prompt
-                %s                         -- base_url
-            );
-        """
-        prompt_text = f"Query: {user_query}\nContext:\n{context}"
-        cur.execute(generate_sql, (prompt_text, OLLAMA_URL))
-        result_json = cur.fetchone()[0]  # e.g. { "response": "...", "done": True, ... }
+        # 4) SELECT relevant chunks from the chosen embeddings table (safe: template lookup)
+        sql_top_chunks = text(CHAT_VIDEO_SQL_TEMPLATES[selected_table])
 
-        final_answer = result_json.get("response", "[No response in JSON]")
+        chunk_rows = session.execute(sql_top_chunks, {
+            "q_emb": user_query_emb,
+            "vid": video_id
+        }).fetchall()
 
-        cur.close()
+        if not chunk_rows:
+            final_answer = "No relevant content found for this video and data type."
+        else:
+            context_pieces = [f"Chunk: {row[0]}" for row in chunk_rows]
+            context_for_generation = "\n\n".join(context_pieces)
+
+            # 5) Generate final answer via PGAI ollama_generate
+            sql_generate = text("""
+                SELECT ai.openai_generate(
+                    :model_name,
+                    :prompt,
+                    :llm_url
+                ) AS answer
+            """)
+
+            prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
+            result_json = session.execute(sql_generate, {
+                "model_name": model_name if model_name != "phi4:latest" else "meta-llama/Llama-3.1-8B-Instruct",
+                "prompt": prompt_text,
+                "llm_url": _LLM_GEN_URL
+            }).scalar()
+
+            if not result_json:
+                final_answer = "No answer was returned by the model."
+            else:
+                final_answer = result_json.get("response", "[No response in JSON]")
+
     except Exception as e:
         logger.exception("Error while handling chat-video")
         final_answer = f"Error: {e}"
     finally:
-        conn.close()
+        session.close()
 
     # Convert final_answer from markdown to HTML
-    final_answer_html = markdown.markdown(final_answer)
+    final_answer_html = md_safe(final_answer)
 
     return jsonify({"answer": final_answer_html})
 
