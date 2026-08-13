@@ -1,8 +1,8 @@
 Below is a revised README with improved formatting, including instructions to initialize the database and create vectorizers via your one-time scripts (init_db.py and the vectorizer script). Adapt as needed!
 
-# summarizeme.io – YouTube Transcript Summaries & Chat
+# summarizeme.runningdigitally.com – YouTube Transcript Summaries & Chat
 
-summarizeme.io is a Python Flask application that downloads transcripts from a YouTube channel (or a single video within a channel) and provides multiple ways to summarize and chat with the content:
+summarizeme.runningdigitally.com is a Python Flask application that downloads transcripts from a YouTube channel (or a single video within a channel) and provides multiple ways to summarize and chat with the content:
 
 - Summaries
 - Uses Ollama (LLaMA-based local text generation).

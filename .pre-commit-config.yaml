@@ -1,0 +1,32 @@
+[gh-warning]
+# Pre-commit checks — run before every push
+#
+# Required: all checks must pass for CI to pass.
+# Local: pip install -r requirements-dev.txt && pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.0
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-requests, types-PyYAML]
+        args: [--ignore-missing-imports, --no-strict-optional]
+        files: "\\.(py)$"
+
+  - repo: local
+    hooks:
+      - id: pytest-check
+        name: Run pytest (unit)
+        entry: pytest tests/unit/ -q
+        language: python
+        additional_dependencies: [-e '.[dev]']
+        pass_filenames: false
+        types: [python]
+        stages: [push]

@@ -1,0 +1,19 @@
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "SIM", "UP", "RUF"]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["db", "summarizeme"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "unit: unit tests",
+    "integration: integration tests",
+    "auth: authentication tests",
+]
