@@ -14,13 +14,12 @@ from sqlalchemy.sql import text
 logger = logging.getLogger(__name__)
 
 # Load these from your .env file or other secure location
-#Read the env file
 load_dotenv()
 CLOUDFLARE_JWKS_URL = os.getenv("CLOUDFLARE_JWKS_URL")
 CLOUDFLARE_ISSUER = os.getenv("CLOUDFLARE_ISSUER")
 CLOUDFLARE_AUD_TAG = os.getenv("CLOUDFLARE_AUD_TAG")
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/mydb")
+DB_URL = os.environ["DATABASE_URL"]
 engine = create_engine(
     DB_URL, 
     echo=False,
@@ -31,20 +30,17 @@ SessionLocal = sessionmaker(bind=engine)
 
 def get_user_email_dev_mode():
     """
-    1) If dev mode (FLASK_ENV=development, or some other check),
-       return a dummy email.
-    2) Otherwise try reading the Cloudflare header or JWT.
+    Returns a dev-mode email only when DEV_AUTH_ENABLED=true is set.
+    Otherwise attempts Cloudflare Access JWT validation.
     """
-
-    # Example approach: check environment variable
-    if os.getenv("FLASK_ENV") == "development":
-        # Return a dummy user or None if you prefer
+    # Dev mode requires explicit opt-in, NOT just FLASK_ENV
+    if os.getenv("DEV_AUTH_ENABLED") == "true":
         return "dev@localhost"
 
     # Production/Cloudflare: Try the simple header first.
-    #cf_email = request.headers.get('Cf-Access-Authenticated-User-Email')
-    #if cf_email:
-    #    return cf_email
+    # cf_email = request.headers.get('Cf-Access-Authenticated-User-Email')
+    # if cf_email:
+    #     return cf_email
 
     # If you want to do JWT validation:
     token = request.headers.get('Cf-Access-Jwt-Assertion') or request.cookies.get('CF_Authorization')
@@ -82,7 +78,7 @@ def get_current_user():
         if user_obj:
             return (user_obj.email, user_obj.role)
         else:
-            # If you want to auto-provision a user with default=reader, do so:
+            # Auto-provision new user with default=reader
             new_user = User(email=email, role="reader")
             session.add(new_user)
             session.commit()

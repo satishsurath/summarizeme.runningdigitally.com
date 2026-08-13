@@ -45,7 +45,6 @@ rich==12.6.0
 setuptools==75.6.0
 sniffio==1.3.1
 SQLAlchemy==2.0.37
-sqlalchemy-orm==1.2.10
 tiktoken==0.8.0
 tqdm==4.67.1
 typing-inspect==0.9.0
@@ -58,3 +57,4 @@ youtube-transcript-api==0.6.3
 yt-dlp==2024.12.6
 PyJWT
 cryptography
+openai>=1.0.0

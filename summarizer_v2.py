@@ -1,15 +1,36 @@
 import os
 import re
 import json
-import ollama
 from dotenv import load_dotenv
+
+try:
+    from openai import OpenAI as _OpenAI
+    _HAS_OPENAI = True
+except ImportError:
+    _HAS_OPENAI = False
+
+try:
+    from ollama import Client as _OllamaClient
+    _HAS_OLLAMA = True
+except ImportError:
+    _HAS_OLLAMA = False
 
 
 load_dotenv()
-ollama_host = os.getenv("REMOTE_OLLAMA_HOST")
-print(f"ollama_host: {ollama_host}")
+# vLLM (OpenAI-compatible) or Ollama (backend-agnostic)
+_VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
+_VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
+_OLLAMA_HOST = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
+_USE_VLLM = os.getenv("VLLM_GEN_HOST") is not None
 
-client = ollama.Client(host='http://' + ollama_host + ':11434')
+# Build URLs
+VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
+OLLAMA_URL = f"http://{_OLLAMA_HOST}:11434"
+LLM_BASE_URL = VLLM_GEN_URL if _USE_VLLM else OLLAMA_URL
+
+# Get the correct base URL
+def _get_llm_url():
+    return VLLM_GEN_URL if _USE_VLLM else OLLAMA_URL
 
 def split_into_sentences(text):
     """
@@ -130,22 +151,36 @@ TEXT:
 """.strip()
     }
 
-def ollama_generate_chunk(model_name, prompt):
+def ollama_generate_chunk(model_name, prompt, client=None):
     """
-    Example direct HTTP request to Ollama. 
-    We demonstrate extra parameters like 'temperature' or 'top_p' if desired.
+    Generate text via LLM backend (vLLM or Ollama).
+    Args:
+        model_name: Model identifier
+        prompt: Prompt text
+        client: Optional OpenAI client for dependency injection (testing)
     """
-    try:
-        response = client.chat(
-        model=model_name,
-        messages=[{"role": "user", "content": prompt}]
-    )
-        #enhanced_text = response.get("message", {}).get("content", "").strip()
-        #resp = requests.post(url, json=payload, timeout=300)
-        #resp.raise_for_status()
+    llm_url = _get_llm_url()
+
+    if _USE_VLLM:
+        if not _HAS_OPENAI:
+            print("[ERROR] openai SDK not installed")
+            return ""
+        chat_client = client or _OpenAI(base_url=llm_url, api_key="not-needed")
+        response = chat_client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4096,
+        )
+        data = response.choices[0].message.content if response.choices else ""
+    else:
+        if not _HAS_OLLAMA:
+            print("[ERROR] ollama SDK not installed")
+            return ""
+        chat_client = client or _OllamaClient(host=llm_url)
+        response = chat_client.chat(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}]
+        )
         data = response.get("message", {}).get("content", "").strip()
-        return data #.get("content", "").strip()
-    except Exception as e:
-        #logger.error(f"Ollama request failed: {e}")
-        print(f"Ollama request failed: {e}")
-        return ""
+
+    return data.strip() if data else ""

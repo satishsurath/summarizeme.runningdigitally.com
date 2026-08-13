@@ -15,14 +15,19 @@ from db.models import Base, Video, VideoFolder
 
 logger = logging.getLogger(__name__)
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/mydb")
-#engine = create_engine(DB_URL)
-engine = create_engine(
-    DB_URL, 
-    echo=False,
-    pool_pre_ping=True,
-    pool_recycle=1800)  # 30 minutes
-SessionLocal = sessionmaker(bind=engine)
+# DB_URL and SessionLocal are imported from app module to avoid duplication.
+# If this file is used standalone, define them:
+try:
+    from app import DB_URL, engine, SessionLocal
+except ImportError:
+    DB_URL = os.environ["DATABASE_URL"]
+    engine = create_engine(
+        DB_URL, 
+        echo=False,
+        pool_pre_ping=True,
+        pool_recycle=1800)
+    SessionLocal = sessionmaker(bind=engine)
+
 
 def download_channel_transcripts(channel_url, status_dict):
     """
@@ -32,8 +37,6 @@ def download_channel_transcripts(channel_url, status_dict):
     - Skip downloading transcripts if they are already in the DB
     - Report skipped videos as processed in the status_dict
     """
-    # Create tables if they don't exist (or use migrations in production)
-    Base.metadata.create_all(engine)
 
     # Get the immutable channel/playlist id and video list from YouTube
     channel_id, videos = get_channel_and_videos(channel_url)

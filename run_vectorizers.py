@@ -11,12 +11,19 @@ def main():
     # 1) Load your DB connection info from environment:
     #Read the env file and load the values
     load_dotenv()
-    ollama_host = os.getenv("REMOTE_OLLAMA_HOST")
-    DB_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/mydb")
+
+    # vLLM for embeddings (used by vectorizer creation)
+    _embed_host = os.getenv("VLLM_EMBED_HOST", "localhost")
+    _embed_port = os.getenv("VLLM_EMBED_PORT", "8001")
+    _ollama_host = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
+    ollama_host = _embed_host if os.getenv("VLLM_EMBED_HOST") else _ollama_host
+
+    DB_URL = os.environ["DATABASE_URL"]
     print(f"DB_URL: {DB_URL}")
 
-    # Build a full URL for Ollama, typically port 11434
     OLLAMA_URL = f"http://{ollama_host}:11434"
+    if os.getenv("VLLM_EMBED_HOST"):
+        OLLAMA_URL = f"http://{_embed_host}:{_embed_port}"
 
     # Connect to Postgres
     conn = psycopg2.connect(DB_URL)
