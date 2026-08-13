@@ -97,6 +97,10 @@ def require_role(allowed_roles):
             if not email:
                 # not authenticated
                 return abort(403, "Unauthorized")
+            if os.getenv("DEV_AUTH_ENABLED") == "true" and email:
+                # In dev mode with auth, treat dev@localhost as admin
+                if email == "dev@localhost" and role == "reader":
+                    role = "admin"
             if role not in allowed_roles:
                 return abort(403, f"User {email} (role={role}) not allowed.")
             return f(*args, **kwargs)
