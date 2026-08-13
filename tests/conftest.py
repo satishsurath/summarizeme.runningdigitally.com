@@ -3,13 +3,15 @@ Shared fixtures for all tests.
 
 Uses a temporary file-based SQLite database to avoid in-memory DB locking.
 """
+
 import os
-import pytest
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Create a temp file DB that persists for the test session
-_tempdb = tempfile.NamedTemporaryFile(suffix=".db", delete=False, dir="/tmp")
+_tempdb = tempfile.NamedTemporaryFile(suffix=".db", delete=False, dir="/tmp")  # noqa: SIM115
 os.environ["DATABASE_URL"] = f"sqlite:///{_tempdb.name}"
 
 # Import after env is set — SQLAlchemy will use SQLite
@@ -24,15 +26,16 @@ app.config["TESTING"] = True
 def _test_db():
     """Create tables once per session, clean up at the very end."""
     from sqlalchemy import create_engine
+
     engine = create_engine(os.environ["DATABASE_URL"])
     Base.metadata.create_all(engine)
     yield engine
     Base.metadata.drop_all(engine)
     engine.dispose()
-    try:
+    import contextlib
+
+    with contextlib.suppress(Exception):
         os.unlink(_tempdb.name)
-    except Exception:
-        pass
 
 
 @pytest.fixture
@@ -46,6 +49,7 @@ def client():
 def with_db(_test_db):
     """Yields a fresh engine for use in tests (tables already created)."""
     from sqlalchemy import create_engine
+
     engine = create_engine(os.environ["DATABASE_URL"])
     yield engine
 
@@ -55,6 +59,7 @@ def admin_user(with_db):
     """Create an admin user in the test DB."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
+
     engine = create_engine(os.environ["DATABASE_URL"])
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -71,6 +76,7 @@ def member_user(with_db):
     """Create a member user in the test DB."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
+
     engine = create_engine(os.environ["DATABASE_URL"])
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -87,6 +93,7 @@ def reader_user(with_db):
     """Create a reader user in the test DB."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
+
     engine = create_engine(os.environ["DATABASE_URL"])
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -101,11 +108,12 @@ def reader_user(with_db):
 @pytest.fixture
 def mock_ollama_response():
     """Mock Ollama responses for summarization and chat."""
-    with patch.dict(os.environ, {"VLLM_GEN_HOST": "localhost"}), \
-         patch("summarizer_v2._USE_VLLM", True), \
-         patch("summarizer_v2._get_llm_url", return_value="http://localhost:8000"), \
-         patch("summarizer_v2._OpenAI") as mock_openai_cls:
-
+    with (
+        patch.dict(os.environ, {"VLLM_GEN_HOST": "localhost"}),
+        patch("summarizer_v2._USE_VLLM", True),
+        patch("summarizer_v2._get_llm_url", return_value="http://localhost:8000"),
+        patch("summarizer_v2._OpenAI") as mock_openai_cls,
+    ):
         mock_client = MagicMock()
         mock_completion = MagicMock()
         mock_completion.choices = [MagicMock(message=MagicMock(content="Mock response"))]

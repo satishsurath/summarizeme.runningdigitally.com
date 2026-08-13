@@ -1,46 +1,41 @@
 # app.py
-import os
-import json
-import threading
 import logging
-from flask import Flask, request, jsonify, render_template, abort, redirect, url_for, flash 
-import markdown
-# Safe mode: escape HTML output to prevent XSS
-# Safe mode: escape HTML output to prevent XSS
-try:
-    def _md(s):
-        return markdown.markdown(s, safe_mode="escape") if s else ""
-except TypeError:
-    def _md(s):
-        return markdown.markdown(s) if s else ""
-md_safe = _md
-import re # used for renaming the channel folder 
-from dotenv import load_dotenv
-
+import os
+import re  # used for renaming the channel folder
+import threading
 from datetime import datetime
-from youtube_utils import download_channel_transcripts, list_downloaded_videos
-from summarizer_v2 import chunk_transcript, build_prompts_for_chunk, ollama_generate_chunk
-from auth_utils import get_current_user
+from functools import wraps
 
+import markdown
+from dotenv import load_dotenv
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import text
 
-from functools import wraps
+from auth_utils import get_current_user
 
 # If you store your models and sync code in separate modules:
-from db.models import Base, Video, VideoFolder, SummariesV2, User
+from db.models import SummariesV2, User, Video, VideoFolder
+from summarizer_v2 import build_prompts_for_chunk, chunk_transcript, ollama_generate_chunk
+from youtube_utils import download_channel_transcripts
+
+# Safe mode: escape HTML output to prevent XSS
+try:
+
+    def _md(s):
+        return markdown.markdown(s, safe_mode="escape") if s else ""
+except TypeError:
+
+    def _md(s):
+        return markdown.markdown(s) if s else ""
 
 
-
+md_safe = _md
 
 DB_URL = os.environ["DATABASE_URL"]
-#engine = create_engine(DB_URL, echo=False)
-engine = create_engine(
-    DB_URL, 
-    echo=False,
-    pool_pre_ping=True,
-    pool_recycle=1800)  # 30 minutes
+# engine = create_engine(DB_URL, echo=False)
+engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)  # 30 minutes
 SessionLocal = sessionmaker(bind=engine)
 
 app = Flask(__name__)
@@ -49,7 +44,7 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-#Read the env file
+# Read the env file
 load_dotenv()
 
 # vLLM instance for embeddings (nomic-embed-text)
@@ -78,7 +73,7 @@ else:
     print(f"[Embed LLM] Using Ollama: {_LLM_EMBED_URL}")
     print(f"[Gen LLM]   Using Ollama: {_LLM_GEN_URL}")
 
-# In-memory storage for statuses (for demo). 
+# In-memory storage for statuses (for demo).
 # For production, use a database or a caching layer (Redis).
 download_statuses = {}
 summarize_v2_statuses = {}
@@ -94,6 +89,7 @@ def require_role(allowed_roles):
         def admin_dashboard():
             ...
     """
+
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
@@ -104,11 +100,13 @@ def require_role(allowed_roles):
             if role not in allowed_roles:
                 return abort(403, f"User {email} (role={role}) not allowed.")
             return f(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
-@app.route('/')
+@app.route("/")
 def index():
     """
     Main page: form to enter a channel URL (or a video from that channel).
@@ -127,18 +125,18 @@ def index():
         session.close()
 
     # Render a template that displays each channel as a link
-    return render_template('index.html', channels=channel_list)
+    return render_template("index.html", channels=channel_list)
 
 
-@app.route('/status')
+@app.route("/status")
 def status_page():
     """
     Basic page to show status progress.
     """
-    return render_template('status.html')
+    return render_template("status.html")
 
 
-@app.route('/videos/<channel_name>')
+@app.route("/videos/<channel_name>")
 def videos_page(channel_name):
     """
     Render a page to chat with the entire channel.
@@ -146,7 +144,7 @@ def videos_page(channel_name):
     """
     session = SessionLocal()
     try:
-        # SELECT v.* 
+        # SELECT v.*
         # FROM videos v
         # JOIN video_folders vf ON v.video_id = vf.video_id
         # WHERE vf.folder_name = :channel_name
@@ -158,9 +156,7 @@ def videos_page(channel_name):
         )
         video_data = []
         for vid in videos:
-            video_data.append({
-                "video": vid
-            })        
+            video_data.append({"video": vid})
     finally:
         session.close()
 
@@ -168,28 +164,23 @@ def videos_page(channel_name):
     return render_template("videos.html", channel_name=channel_name, video_data=video_data)
 
 
-@app.route('/api/channel/start', methods=['POST'])
-@require_role(["admin"]) # Only allow admins to start channel downloads
+@app.route("/api/channel/start", methods=["POST"])
+@require_role(["admin"])  # Only allow admins to start channel downloads
 def api_channel_start():
     """
     Start downloading transcripts for the entire channel.
     Expects JSON: { "channel_url": "https://www.youtube.com/..." }
     """
     data = request.get_json()
-    if not data or 'channel_url' not in data:
+    if not data or "channel_url" not in data:
         return jsonify({"status": "error", "message": "No channel_url provided"}), 400
 
-    channel_url = data['channel_url'].strip()
-    # Generate a unique task ID for tracking 
-    task_id = f"dl_{len(download_statuses)+1}"
+    channel_url = data["channel_url"].strip()
+    # Generate a unique task ID for tracking
+    task_id = f"dl_{len(download_statuses) + 1}"
 
     # Initialize the task status in memory
-    download_statuses[task_id] = {
-        "status": "in_progress",
-        "processed": 0,
-        "total": 0,
-        "errors": []
-    }
+    download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
 
     def run_download():
         try:
@@ -202,13 +193,14 @@ def api_channel_start():
             download_statuses[task_id]["status"] = "failed"
             download_statuses[task_id]["errors"].append(str(e))
 
-    # Run the download in a background thread so we don’t block the Flask request
+    # Run the download in a background thread so we don't block the Flask request
     thread = threading.Thread(target=run_download, daemon=True)
     thread.start()
 
     return jsonify({"status": "initiated", "task_id": task_id})
 
-@app.route('/api/channel/status/<task_id>', methods=['GET'])
+
+@app.route("/api/channel/status/<task_id>", methods=["GET"])
 def api_channel_status(task_id):
     """
     Returns the status of an ongoing channel download process.
@@ -219,13 +211,13 @@ def api_channel_status(task_id):
     return jsonify(status)
 
 
-@app.route('/api/videos/<channel_name>', methods=['GET'])
+@app.route("/api/videos/<channel_name>", methods=["GET"])
 def api_get_videos(channel_name):
-    page = int(request.args.get('page', 1))
-    page_size = int(request.args.get('page_size', 5))  # default 5 if not provided
-    sort_by = request.args.get('sort_by', 'title')     # "title" or "date"
-    sort_order = request.args.get('sort_order', 'asc').lower()  # "asc" or "desc"
-    filter_str = request.args.get('filter', '').strip().lower()
+    page = int(request.args.get("page", 1))
+    page_size = int(request.args.get("page_size", 5))  # default 5 if not provided
+    sort_by = request.args.get("sort_by", "title")  # "title" or "date"
+    sort_order = request.args.get("sort_order", "asc").lower()  # "asc" or "desc"
+    filter_str = request.args.get("filter", "").strip().lower()
 
     session = SessionLocal()
     try:
@@ -241,16 +233,14 @@ def api_get_videos(channel_name):
 
         # 2) Sorting
         #    We use sort_by + sort_order
-        if sort_by == 'title':
-            if sort_order == 'asc':
-                query = query.order_by(Video.title.asc())
-            else:
-                query = query.order_by(Video.title.desc())
-        elif sort_by == 'date':
-            if sort_order == 'asc':
-                query = query.order_by(Video.upload_date.asc())
-            else:
-                query = query.order_by(Video.upload_date.desc())
+        if sort_by == "title":
+            query = query.order_by(Video.title.asc()) if sort_order == "asc" else query.order_by(Video.title.desc())
+        elif sort_by == "date":
+            query = (
+                query.order_by(Video.upload_date.asc())
+                if sort_order == "asc"
+                else query.order_by(Video.upload_date.desc())
+            )
 
         # 3) Pagination
         total = query.count()
@@ -262,31 +252,32 @@ def api_get_videos(channel_name):
         for vid in video_rows:
             summaries_v2_data = []
             for s in vid.summaries_v2:
-                summaries_v2_data.append({
-                    "id": s.id,
-                    "model_name": s.model_name,
-                    "date_generated": s.date_generated.isoformat() if s.date_generated else None,
-                })
+                summaries_v2_data.append(
+                    {
+                        "id": s.id,
+                        "model_name": s.model_name,
+                        "date_generated": s.date_generated.isoformat() if s.date_generated else None,
+                    }
+                )
 
-            videos_list.append({
-                "video_id": vid.video_id,
-                "title": vid.title or "Untitled",
-                "upload_date": vid.upload_date or "UnknownDate",
-                "summaries_v2": summaries_v2_data
-            })
+            videos_list.append(
+                {
+                    "video_id": vid.video_id,
+                    "title": vid.title or "Untitled",
+                    "upload_date": vid.upload_date or "UnknownDate",
+                    "summaries_v2": summaries_v2_data,
+                }
+            )
 
-        return jsonify({
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "videos": videos_list
-        })
+        return jsonify({"total": total, "page": page, "page_size": page_size, "videos": videos_list})
     finally:
         session.close()
+
 
 #################################################
 ####### New routes for summarizing videos #######
 #################################################
+
 
 @app.route("/api/summarize_v2", methods=["POST"])
 def api_summarize_v2():
@@ -305,13 +296,8 @@ def api_summarize_v2():
     if not channel_name or not video_ids:
         return jsonify({"status": "error", "message": "channel_id or video_ids missing"}), 400
 
-    task_id = f"summ_v2_{len(summarize_v2_statuses)+1}"
-    summarize_v2_statuses[task_id] = {
-        "status": "in_progress",
-        "processed": 0,
-        "total": len(video_ids),
-        "errors": []
-    }
+    task_id = f"summ_v2_{len(summarize_v2_statuses) + 1}"
+    summarize_v2_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": len(video_ids), "errors": []}
 
     def run_summarize_v2():
         session = SessionLocal()
@@ -319,28 +305,14 @@ def api_summarize_v2():
         try:
             for vid in video_ids:
                 # 1) Ensure folder association
-                existing_folder = session.query(VideoFolder).filter_by(
-                    folder_name=channel_name, 
-                    video_id=vid
-                ).first()
+                existing_folder = session.query(VideoFolder).filter_by(folder_name=channel_name, video_id=vid).first()
                 if not existing_folder:
-                    folder_assoc = VideoFolder(
-                        folder_name=channel_name,
-                        video_id=vid,
-                        last_modified=datetime.utcnow()
-                    )
+                    folder_assoc = VideoFolder(folder_name=channel_name, video_id=vid, last_modified=datetime.utcnow())
                     session.add(folder_assoc)
                     session.commit()
 
                 # 2) Skip if SummariesV2 row exists
-                existing_summary = (
-                    session.query(SummariesV2)
-                    .filter_by(
-                        video_id=vid, 
-                        model_name=model_name
-                    )
-                    .first()
-                )
+                existing_summary = session.query(SummariesV2).filter_by(video_id=vid, model_name=model_name).first()
                 if existing_summary:
                     logger.info(f"[SummariesV2] Skipping {vid}, summary already exists for model='{model_name}'.")
                     processed_count += 1
@@ -405,7 +377,7 @@ def api_summarize_v2():
                     concise_summary=final_concise,
                     key_topics=final_topics,
                     important_takeaways=final_takeaways,
-                    comprehensive_notes=final_comprehensive
+                    comprehensive_notes=final_comprehensive,
                 )
                 session.add(new_summary)
                 session.commit()
@@ -428,6 +400,7 @@ def api_summarize_v2():
 
     return jsonify({"status": "initiated", "task_id": task_id})
 
+
 @app.route("/api/summarize_v2/status/<task_id>", methods=["GET"])
 def api_summarize_v2_status(task_id):
     """
@@ -443,24 +416,18 @@ def api_summarize_v2_status(task_id):
 def api_list_channels():
     session = SessionLocal()
     try:
-        folders = (
-            session.query(VideoFolder.folder_name, VideoFolder.original_playlist_id)
-            .distinct()
-            .all()
-        )
+        folders = session.query(VideoFolder.folder_name, VideoFolder.original_playlist_id).distinct().all()
 
         # Convert to a list of dictionaries
-        folder_list = [
-            {"folder_name": f.folder_name, "original_playlist_id": f.original_playlist_id}
-            for f in folders
-        ]
+        folder_list = [{"folder_name": f.folder_name, "original_playlist_id": f.original_playlist_id} for f in folders]
     finally:
         session.close()
 
     return jsonify(folder_list)
 
-@app.route('/api/channels/rename', methods=['POST'])
-@require_role(["admin"]) # Only allow admins to rename channels
+
+@app.route("/api/channels/rename", methods=["POST"])
+@require_role(["admin"])  # Only allow admins to rename channels
 def api_rename_channel():
     """
     Renames a channel in the database (video_folders.folder_name).
@@ -475,10 +442,7 @@ def api_rename_channel():
     new_name = data.get("new_name", "").strip()
 
     if not old_name or not new_name:
-        return jsonify({
-            "status": "error",
-            "message": "old_name and new_name are required"
-        }), 400
+        return jsonify({"status": "error", "message": "old_name and new_name are required"}), 400
 
     # Example of sanitizing the new_name to allow only letters, digits, underscores, hyphens, spaces.
     safe_new_name = re.sub(r"[^a-zA-Z0-9_\-\s]", "", new_name)
@@ -490,31 +454,19 @@ def api_rename_channel():
         # Check if old_name actually exists in the DB
         count_old = session.query(VideoFolder).filter_by(folder_name=old_name).count()
         if count_old == 0:
-            return jsonify({
-                "status": "error",
-                "message": f"Channel '{old_name}' not found in database."
-            }), 404
+            return jsonify({"status": "error", "message": f"Channel '{old_name}' not found in database."}), 404
 
         # Optional: Check if new_name already exists (if you don't allow duplicates)
         count_new = session.query(VideoFolder).filter_by(folder_name=safe_new_name).count()
         if count_new > 0:
-            return jsonify({
-                "status": "error",
-                "message": f"Channel '{safe_new_name}' already exists."
-            }), 400
+            return jsonify({"status": "error", "message": f"Channel '{safe_new_name}' already exists."}), 400
 
         # Perform the update (rename)
         # Update only the folder_name field; original_playlist_id remains unchanged.
-        session.query(VideoFolder).filter_by(folder_name=old_name).update({
-            "folder_name": safe_new_name
-        })
+        session.query(VideoFolder).filter_by(folder_name=old_name).update({"folder_name": safe_new_name})
         session.commit()
 
-        return jsonify({
-            "status": "ok",
-            "old_name": old_name,
-            "new_name": safe_new_name
-        })
+        return jsonify({"status": "ok", "old_name": old_name, "new_name": safe_new_name})
 
     except Exception as e:
         logger.error(f"Error renaming channel in DB: {e}")
@@ -523,8 +475,9 @@ def api_rename_channel():
     finally:
         session.close()
 
-@app.route('/api/channels/refresh', methods=["POST"])
-@require_role(["admin", "member"]) # Only allow admins and members to refresh channels
+
+@app.route("/api/channels/refresh", methods=["POST"])
+@require_role(["admin", "member"])  # Only allow admins and members to refresh channels
 def api_refresh_channel():
     """
     Refresh the channel using the immutable original_playlist_id.
@@ -538,15 +491,19 @@ def api_refresh_channel():
     session = SessionLocal()
     try:
         # Look up the channel by matching either the human-friendly name or the original_playlist_id.
-        folder_obj = session.query(VideoFolder).filter(
-            (VideoFolder.folder_name == channel_name_input) |
-            (VideoFolder.original_playlist_id == channel_name_input)
-        ).first()
+        folder_obj = (
+            session.query(VideoFolder)
+            .filter(
+                (VideoFolder.folder_name == channel_name_input)
+                | (VideoFolder.original_playlist_id == channel_name_input)
+            )
+            .first()
+        )
         # debug statement
         print(f"folder_obj: {folder_obj}")
         if not folder_obj:
             # debug statement
-            print(f"Channel not found")
+            print("Channel not found")
             return jsonify({"status": "error", "message": "Channel not found"}), 404
 
         # Preserve the human-friendly name.
@@ -559,12 +516,7 @@ def api_refresh_channel():
 
         # Generate a task ID using the human-friendly name.
         task_id = f"refresh_{human_playlist_name}_{int(datetime.utcnow().timestamp())}"
-        download_statuses[task_id] = {
-            "status": "in_progress",
-            "processed": 0,
-            "total": 0,
-            "errors": []
-        }
+        download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
 
         def run_refresh():
             try:
@@ -586,8 +538,8 @@ def api_refresh_channel():
         session.close()
 
 
-@app.route('/api/channels/delete', methods=['POST'])
-@require_role(["admin"]) # Only allow admins to delete channels
+@app.route("/api/channels/delete", methods=["POST"])
+@require_role(["admin"])  # Only allow admins to delete channels
 def api_delete_channel():
     """
     Deletes a channel (folder_name) from the database.
@@ -601,10 +553,10 @@ def api_delete_channel():
     session = SessionLocal()
 
     data = request.get_json()
-    if not data or 'name' not in data:
+    if not data or "name" not in data:
         return jsonify({"status": "error", "message": "No channel name provided"}), 400
 
-    folder_name = data['name'].strip()
+    folder_name = data["name"].strip()
     if not folder_name:
         return jsonify({"status": "error", "message": "Channel name is empty."}), 400
 
@@ -623,7 +575,7 @@ def api_delete_channel():
 
     session.flush()
 
-    # 4) Check each unique video_id to see if it’s still referenced
+    # 4) Check each unique video_id to see if it's still referenced
     unique_video_ids = set(video_ids)
     for vid in unique_video_ids:
         usage_count = session.query(VideoFolder).filter_by(video_id=vid).count()
@@ -637,7 +589,7 @@ def api_delete_channel():
     return jsonify({"status": "ok", "deleted_folder": folder_name})
 
 
-@app.route('/api/all-tasks', methods=['GET'])
+@app.route("/api/all-tasks", methods=["GET"])
 def api_all_tasks():
     """
     Return a list of all tasks (downloads and summaries) in a single JSON array.
@@ -646,25 +598,29 @@ def api_all_tasks():
 
     # For download tasks
     for task_id, stat in download_statuses.items():
-        all_tasks.append({
-            "task_id": task_id,
-            "type": "download",
-            "status": stat["status"],
-            "processed": stat["processed"],
-            "total": stat["total"],
-            "errors": stat["errors"]
-        })
+        all_tasks.append(
+            {
+                "task_id": task_id,
+                "type": "download",
+                "status": stat["status"],
+                "processed": stat["processed"],
+                "total": stat["total"],
+                "errors": stat["errors"],
+            }
+        )
 
     # For summarize tasks
     for task_id, stat in summarize_v2_statuses.items():
-        all_tasks.append({
-            "task_id": task_id,
-            "type": "summarize",
-            "status": stat["status"],
-            "processed": stat["processed"],
-            "total": stat["total"],
-            "errors": stat["errors"]
-        })
+        all_tasks.append(
+            {
+                "task_id": task_id,
+                "type": "summarize",
+                "status": stat["status"],
+                "processed": stat["processed"],
+                "total": stat["total"],
+                "errors": stat["errors"],
+            }
+        )
 
     return jsonify(all_tasks)
 
@@ -706,8 +662,8 @@ def api_ollama_models():
 @app.route("/summaries_v2/<int:summary_id>", methods=["GET"])
 def view_summary_v2(summary_id):
     """
-    Fetch SummariesV2 by ID, join its Video, 
-    convert the 4 summary fields from MD to HTML, 
+    Fetch SummariesV2 by ID, join its Video,
+    convert the 4 summary fields from MD to HTML,
     and render a 'summary_v2.html' template.
     """
     session = SessionLocal()
@@ -715,7 +671,7 @@ def view_summary_v2(summary_id):
         summary_obj = session.query(SummariesV2).get(summary_id)
         if not summary_obj:
             return f"SummariesV2 with ID {summary_id} not found.", 404
-        
+
         video = summary_obj.video  # Because SummariesV2.video is the relationship
 
         # Convert each of the 4 fields from markdown => HTML
@@ -726,12 +682,12 @@ def view_summary_v2(summary_id):
 
         return render_template(
             "summary_v2.html",
-            summary=summary_obj,    # We might still pass the raw text data for reference
+            summary=summary_obj,  # We might still pass the raw text data for reference
             video=video,
             concise_html=concise_html,
             topics_html=topics_html,
             takeaways_html=takeaways_html,
-            notes_html=notes_html
+            notes_html=notes_html,
         )
     finally:
         session.close()
@@ -740,7 +696,7 @@ def view_summary_v2(summary_id):
 @app.route("/transcript/<video_id>")
 def view_transcript_v2(video_id):
     """
-    Fetch Video Transcript by ID, 
+    Fetch Video Transcript by ID,
     and render a 'summary_v2.html' template.
     """
     session = SessionLocal()
@@ -748,13 +704,10 @@ def view_transcript_v2(video_id):
         video_obj = session.query(Video).get(video_id)
         if not video_obj:
             return f"Video with ID {video_id} not found.", 404
-        
+
         video = video_obj  # Because SummariesV2.video is the relationship
 
-        return render_template(
-            "transcript_v2.html",
-            video=video
-        )
+        return render_template("transcript_v2.html", video=video)
     finally:
         session.close()
 
@@ -845,7 +798,7 @@ def chat_channel_page(channel_name):
     """
     session = SessionLocal()
     try:
-        # SELECT v.* 
+        # SELECT v.*
         # FROM videos v
         # JOIN video_folders vf ON v.video_id = vf.video_id
         # WHERE vf.folder_name = :channel_name
@@ -857,14 +810,13 @@ def chat_channel_page(channel_name):
         )
         video_data = []
         for vid in videos:
-            video_data.append({
-                "video": vid
-            })        
+            video_data.append({"video": vid})
     finally:
         session.close()
 
     # We'll pass `videos` to the template so we can display them
     return render_template("channel_chat.html", channel_name=channel_name, video_data=video_data)
+
 
 @app.route("/api/chat-channel/<channel_name>", methods=["POST"])
 def api_chat_channel(channel_name):
@@ -885,16 +837,18 @@ def api_chat_channel(channel_name):
     if not user_query:
         return jsonify({"answer": "No query provided."}), 400
 
-    logger.info(f"Chat-channel query for channel={channel_name}, "
-                f"user_query='{user_query}', data_type='{data_type}', model='{model_name}'")
+    logger.info(
+        f"Chat-channel query for channel={channel_name}, "
+        f"user_query='{user_query}', data_type='{data_type}', model='{model_name}'"
+    )
 
     # 1) Map data_type to the relevant embeddings view
     EMBEDDINGS_VIEW_MAP = {
         "comprehensive_notes": "public.summaries_v2_comprehensive_notes_embedding",
-        "concise_summary":     "public.summaries_v2_concise_summary_embedding",
-        "key_topics":          "public.summaries_v2_key_topics_embedding",
+        "concise_summary": "public.summaries_v2_concise_summary_embedding",
+        "key_topics": "public.summaries_v2_key_topics_embedding",
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
-        "transcript":          "public.videos_embedding"
+        "transcript": "public.videos_embedding",
     }
     selected_view = EMBEDDINGS_VIEW_MAP.get(data_type, EMBEDDINGS_VIEW_MAP["comprehensive_notes"])
 
@@ -909,11 +863,10 @@ def api_chat_channel(channel_name):
             ) AS user_query_emb
         """)
 
-        user_query_emb = session.execute(sql_embed, {
-            "model_name": "nomic-ai/nomic-embed-text-v1.5", 
-            "query_text": user_query,
-            "llm_url": _LLM_EMBED_URL
-        }).scalar()
+        user_query_emb = session.execute(
+            sql_embed,
+            {"model_name": "nomic-ai/nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
+        ).scalar()
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
@@ -921,10 +874,7 @@ def api_chat_channel(channel_name):
         # 3) Retrieve relevant chunks from the selected view (safe: whitelist key, % substitutes view name)
         sql_top_chunks = text(CHAT_CHANNEL_SQL_TEMPLATES[selected_view] % {"view": selected_view})
 
-        chunk_rows = session.execute(sql_top_chunks, {
-            "q_emb": user_query_emb,
-            "chan": channel_name
-        }).fetchall()
+        chunk_rows = session.execute(sql_top_chunks, {"q_emb": user_query_emb, "chan": channel_name}).fetchall()
 
         if not chunk_rows:
             final_answer = "No relevant content found for this channel and data type."
@@ -963,11 +913,9 @@ User Query:
 Please provide a concise answer:
 """
 
-            result_json = session.execute(sql_generate, {
-                "model_name": model_name,
-                "prompt": prompt_str,
-                "llm_url": _LLM_GEN_URL
-            }).scalar()
+            result_json = session.execute(
+                sql_generate, {"model_name": model_name, "prompt": prompt_str, "llm_url": _LLM_GEN_URL}
+            ).scalar()
 
             if not result_json:
                 final_answer = "No answer was returned by the model."
@@ -992,7 +940,7 @@ Please provide a concise answer:
     <a href="/chat-video/{vid_id}">
         <svg xmlns="http://www.w3.org/2000/svg" height="24px"
              viewBox="0 -960 960 960" width="24px">
-            <path d="M240-400h320v-80H240v80Zm0-120h480v-80H240v80Zm0-120h480v-80H240v80ZM80-80v-720q0-33 23.5-56.5T160-880h640q33 0 56.5 23.5T880-800v480q0 33-23.5 56.5T800-240H240L80-80Zm126-240h594v-480H160v525l46-45Zm-46 0v-480 480Z"/>
+        <!-- SVG icon (truncated for readability) -->
         </svg>
     </a>
     {vid_title}
@@ -1004,7 +952,7 @@ Please provide a concise answer:
 
     except Exception as e:
         logger.exception("Error during chat-channel flow:")
-        return jsonify({"answer": f"Error: {str(e)}"}), 500
+        return jsonify({"answer": f"Error: {e!s}"}), 500
     finally:
         session.close()
 
@@ -1014,6 +962,7 @@ Please provide a concise answer:
         final_answer_html += used_videos_html
 
     return jsonify({"answer": final_answer_html})
+
 
 @app.route("/chat-video/<video_id>", methods=["GET"])
 def chat_video_page(video_id):
@@ -1042,7 +991,7 @@ def chat_video_page(video_id):
         video_id=video_id,
         video_name=video_name,
         video_transcript=video_transcript,
-        folder_list=folder_list
+        folder_list=folder_list,
     )
 
 
@@ -1054,8 +1003,11 @@ def api_chat_video(video_id):
     data = request.json or {}
     user_query = data.get("query", "")
     data_type = data.get("data_type", "comprehensive_notes")  # default fallback
+    model_name = data.get("model_name", "phi4")  # default fallback
 
-    logger.info(f"Chat-video query for video_id={video_id}, user_query={user_query}, data_type={data_type}")
+    logger.info(
+        f"Chat-video query for video_id={video_id}, user_query={user_query}, data_type={data_type}, model={model_name}"
+    )
 
     # 1) Create a small lookup dict that maps data_type to the relevant embeddings store
     #    e.g. the "destination =>" string you used in create_vectorizer
@@ -1063,10 +1015,10 @@ def api_chat_video(video_id):
     #    Example names are placeholders—adjust to match your actual vectorizer output.
     EMBEDDINGS_TABLE_MAP = {
         "comprehensive_notes": "public.summaries_v2_comprehensive_notes_embedding",
-        "concise_summary":     "public.summaries_v2_concise_summary_embedding",
-        "key_topics":          "public.summaries_v2_key_topics_embedding",
+        "concise_summary": "public.summaries_v2_concise_summary_embedding",
+        "key_topics": "public.summaries_v2_key_topics_embedding",
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
-        "transcript":          "public.videos_embedding"
+        "transcript": "public.videos_embedding",
     }
 
     # If the user chose something not in the map, default to comprehensive_notes
@@ -1084,11 +1036,10 @@ def api_chat_video(video_id):
             ) AS user_query_emb
         """)
 
-        user_query_emb = session.execute(sql_embed, {
-            "model_name": "nomic-ai/nomic-embed-text-v1.5",
-            "query_text": user_query,
-            "llm_url": _LLM_EMBED_URL
-        }).scalar()
+        user_query_emb = session.execute(
+            sql_embed,
+            {"model_name": "nomic-ai/nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
+        ).scalar()
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
@@ -1096,10 +1047,7 @@ def api_chat_video(video_id):
         # 4) SELECT relevant chunks from the chosen embeddings table (safe: whitelist key, % substitutes table name)
         sql_top_chunks = text(CHAT_VIDEO_SQL_TEMPLATES[selected_table] % {"view": selected_table})
 
-        chunk_rows = session.execute(sql_top_chunks, {
-            "q_emb": user_query_emb,
-            "vid": video_id
-        }).fetchall()
+        chunk_rows = session.execute(sql_top_chunks, {"q_emb": user_query_emb, "vid": video_id}).fetchall()
 
         if not chunk_rows:
             final_answer = "No relevant content found for this video and data type."
@@ -1117,11 +1065,14 @@ def api_chat_video(video_id):
             """)
 
             prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
-            result_json = session.execute(sql_generate, {
-                "model_name": model_name if model_name != "phi4:latest" else "meta-llama/Llama-3.1-8B-Instruct",
-                "prompt": prompt_text,
-                "llm_url": _LLM_GEN_URL
-            }).scalar()
+            result_json = session.execute(
+                sql_generate,
+                {
+                    "model_name": model_name if model_name != "phi4:latest" else "meta-llama/Llama-3.1-8B-Instruct",
+                    "prompt": prompt_text,
+                    "llm_url": _LLM_GEN_URL,
+                },
+            ).scalar()
 
             if not result_json:
                 final_answer = "No answer was returned by the model."
@@ -1140,10 +1091,10 @@ def api_chat_video(video_id):
     return jsonify({"answer": final_answer_html})
 
 
-
 #############################################################################
 # Admin Routes
 #############################################################################
+
 
 @app.route("/admin-settings")
 @require_role(["admin"])
@@ -1155,6 +1106,7 @@ def admin_settings():
         return render_template("admin_settings.html", users=users)
     finally:
         session.close()
+
 
 @app.route("/admin-update-role", methods=["POST"])
 @require_role(["admin"])
@@ -1176,6 +1128,7 @@ def admin_update_role():
         session.close()
 
     return redirect(url_for("admin_settings"))
+
 
 @app.route("/admin-add-user", methods=["POST"])
 @require_role(["admin"])  # Only admins can add new users
@@ -1216,6 +1169,7 @@ def admin_add_user():
 
     return redirect(url_for("admin_settings"))
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # For local dev
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5000)

@@ -1,6 +1,6 @@
 """Tests for youtube_utils.py — transcript downloading and parsing."""
-import pytest
-from youtube_utils import parse_srt, srt_time_to_seconds, build_transcript_variants
+
+from youtube_utils import build_transcript_variants, parse_srt, srt_time_to_seconds
 
 
 class TestParseSRT:
@@ -73,7 +73,7 @@ class TestBuildTranscriptVariants:
             {"text": "Hello", "start": 1.0, "duration": 3.0},
             {"text": "World", "start": 4.0, "duration": 2.0},
         ]
-        with_ts, no_ts = build_transcript_variants(entries)
+        with_ts, _no_ts = build_transcript_variants(entries)
         assert "Hello" in with_ts
         assert "World" in with_ts
         assert "1.0" in with_ts or "00:00:01" in with_ts

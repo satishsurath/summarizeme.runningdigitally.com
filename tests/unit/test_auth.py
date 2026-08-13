@@ -1,10 +1,12 @@
 """Tests for auth_utils.py — Cloudflare Access JWT authentication."""
+
 import os
-from unittest.mock import patch, MagicMock
-import pytest
-from db.models import User
+from unittest.mock import MagicMock, patch
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from db.models import User
 
 
 class TestGetUserEmailDevMode:
@@ -23,8 +25,8 @@ class TestGetUserEmailDevMode:
 
     def test_dev_mode_returns_none_when_disabled(self, with_db):
         """When DEV_AUTH_ENABLED is not set, dev mode should not activate."""
-        from auth_utils import get_user_email_dev_mode
         from app import app
+        from auth_utils import get_user_email_dev_mode
 
         os.environ.pop("DEV_AUTH_ENABLED", None)
         os.environ.pop("FLASK_ENV", None)
@@ -34,8 +36,8 @@ class TestGetUserEmailDevMode:
 
     def test_jwt_flow_fails_without_token(self, with_db):
         """Without a JWT token, should return None."""
-        from auth_utils import get_user_email_dev_mode
         from app import app
+        from auth_utils import get_user_email_dev_mode
 
         os.environ.pop("DEV_AUTH_ENABLED", None)
         os.environ.pop("CLOUDFLARE_JWKS_URL", None)
@@ -56,8 +58,8 @@ class TestGetCurrentUser:
 
     def test_unauthenticated_user_returns_none(self, with_db):
         """No auth header → None, None."""
-        from auth_utils import get_current_user
         from app import app
+        from auth_utils import get_current_user
 
         os.environ.pop("DEV_AUTH_ENABLED", None)
         os.environ.pop("CLOUDFLARE_JWKS_URL", None)
@@ -75,76 +77,78 @@ class TestGetCurrentUser:
 
     def test_authenticated_user_returns_role(self, with_db, admin_user):
         """Authenticated user with existing DB record returns correct role."""
-        from auth_utils import get_current_user
         from app import app
+        from auth_utils import get_current_user
 
         os.environ.pop("DEV_AUTH_ENABLED", None)
         mock_payload = {"email": "admin@test.com"}
 
-        with app.test_request_context():
-            with patch("auth_utils.request") as mock_request, \
-                 patch("auth_utils.jwt.decode", return_value=mock_payload), \
-                 patch("auth_utils.PyJWKClient") as mock_jwks:
+        with (
+            app.test_request_context(),
+            patch("auth_utils.request") as mock_request,
+            patch("auth_utils.jwt.decode", return_value=mock_payload),
+            patch("auth_utils.PyJWKClient") as mock_jwks,
+        ):
+            mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
+            mock_request.headers.get.side_effect = lambda key, default=None: {
+                "Cf-Access-Jwt-Assertion": "fake_token",
+            }.get(key, default)
 
-                mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
-                mock_request.headers.get.side_effect = lambda key, default=None: {
-                    "Cf-Access-Jwt-Assertion": "fake_token",
-                }.get(key, default)
-
-                email, role = get_current_user()
-                assert email == "admin@test.com"
-                assert role == "admin"
+            email, role = get_current_user()
+            assert email == "admin@test.com"
+            assert role == "admin"
 
     def test_auto_provisions_new_user_as_reader(self, with_db):
         """New authenticated user should be auto-provisioned as 'reader'."""
-        from auth_utils import get_current_user
         from app import app
+        from auth_utils import get_current_user
 
         os.environ.pop("DEV_AUTH_ENABLED", None)
         mock_payload = {"email": "newuser2@test.com"}
 
-        with app.test_request_context():
-            with patch("auth_utils.request") as mock_request, \
-                 patch("auth_utils.jwt.decode", return_value=mock_payload), \
-                 patch("auth_utils.PyJWKClient") as mock_jwks:
+        with (
+            app.test_request_context(),
+            patch("auth_utils.request") as mock_request,
+            patch("auth_utils.jwt.decode", return_value=mock_payload),
+            patch("auth_utils.PyJWKClient") as mock_jwks,
+        ):
+            mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
+            mock_request.headers.get.side_effect = lambda key, default=None: {
+                "Cf-Access-Jwt-Assertion": "fake_token",
+            }.get(key, default)
 
-                mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
-                mock_request.headers.get.side_effect = lambda key, default=None: {
-                    "Cf-Access-Jwt-Assertion": "fake_token",
-                }.get(key, default)
-
-                email, role = get_current_user()
-                assert email == "newuser2@test.com"
-                assert role == "reader"
+            email, role = get_current_user()
+            assert email == "newuser2@test.com"
+            assert role == "reader"
 
     def test_auto_provision_creates_user_in_db(self, with_db):
         """Auto-provisioned user should exist in the database."""
-        from auth_utils import get_current_user
-        from db.models import User
         from app import app
+        from auth_utils import get_current_user
 
         os.environ.pop("DEV_AUTH_ENABLED", None)
         mock_payload = {"email": "freshuser2@test.com"}
 
-        with app.test_request_context():
-            with patch("auth_utils.request") as mock_request, \
-                 patch("auth_utils.jwt.decode", return_value=mock_payload), \
-                 patch("auth_utils.PyJWKClient") as mock_jwks:
+        with (
+            app.test_request_context(),
+            patch("auth_utils.request") as mock_request,
+            patch("auth_utils.jwt.decode", return_value=mock_payload),
+            patch("auth_utils.PyJWKClient") as mock_jwks,
+        ):
+            mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
+            mock_request.headers.get.side_effect = lambda key, default=None: {
+                "Cf-Access-Jwt-Assertion": "fake_token",
+            }.get(key, default)
 
-                mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
-                mock_request.headers.get.side_effect = lambda key, default=None: {
-                    "Cf-Access-Jwt-Assertion": "fake_token",
-                }.get(key, default)
+            get_current_user()
 
-                get_current_user()
-
-                engine = create_engine(os.environ["DATABASE_URL"])
-                Session = sessionmaker(bind=engine)
-                session = Session()
-                user = session.query(User).filter_by(email="freshuser2@test.com").first()
-                assert user is not None
-                assert user.role == "reader"
-                session.close()
+            engine = create_engine(os.environ["DATABASE_URL"])
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            user = session.query(User).filter_by(email="freshuser2@test.com").first()
+            assert user is not None
+            assert user.role == "reader"
+            session.close()
 
 
 class TestRoleDecorator:
@@ -152,7 +156,6 @@ class TestRoleDecorator:
 
     def test_admin_access_allowed(self, client, with_db, mock_ollama_response):
         """Admin user should access admin endpoints."""
-        from db.models import User
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
 

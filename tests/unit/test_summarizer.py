@@ -1,6 +1,6 @@
 """Tests for summarizer_v2.py — chunking, prompts, and Ollama generation."""
-import pytest
-from summarizer_v2 import split_into_sentences, chunk_transcript, build_prompts_for_chunk
+
+from summarizer_v2 import build_prompts_for_chunk, chunk_transcript, split_into_sentences
 
 
 class TestSplitIntoSentences:
@@ -105,7 +105,7 @@ class TestBuildPromptsForChunk:
     def test_prompts_contain_text(self):
         """Each prompt should contain the chunk text."""
         prompts = build_prompts_for_chunk("my test content")
-        for key, prompt in prompts.items():
+        for _key, prompt in prompts.items():
             assert "my test content" in prompt
 
     def test_prompts_have_role_instructions(self):

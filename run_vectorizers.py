@@ -1,15 +1,15 @@
-#run_vectorizers.py
+# run_vectorizers.py
 
 import os
+
 import psycopg2
 from dotenv import load_dotenv
-
 
 
 def main():
 
     # 1) Load your DB connection info from environment:
-    #Read the env file and load the values
+    # Read the env file and load the values
     load_dotenv()
 
     # vLLM for embeddings (used by vectorizer creation)
@@ -30,14 +30,13 @@ def main():
     cur = conn.cursor()
 
     try:
-
         # 2) Ensure pgai extension installed
         print("[INFO] Ensuring pgai extension is installed...")
         cur.execute("CREATE EXTENSION IF NOT EXISTS ai CASCADE;")
         conn.commit()
 
         # 1) Create vectorizer for transcript (videos.transcript_no_ts).
-        #    This might already exist, but we’ll show it for completeness.
+        #    This might already exist, but we'll show it for completeness.
         transcript_sql = f"""
         SELECT ai.create_vectorizer(
             'public.videos'::regclass,
@@ -66,8 +65,7 @@ def main():
         # Common chunking config for markdown headings
         # chunk_size=2000, chunk_overlap=200
         # first splitting on headings, then fallback to line breaks + punctuation
-        # is_separator_regex => true because we’re using ^# anchors in the array.
-
+        # is_separator_regex => true because we're using ^# anchors in the array.
 
         # Vectorizer for concise_summary
         concise_summary_sql = f"""
@@ -234,6 +232,7 @@ def main():
         conn.close()
 
     print("[SUCCESS] All vectorizers created successfully!")
+
 
 if __name__ == "__main__":
     main()
