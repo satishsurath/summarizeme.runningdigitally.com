@@ -50,7 +50,7 @@ load_dotenv()
 # vLLM instance for embeddings (nomic-embed-text)
 _VLLM_EMBED_HOST = os.getenv("VLLM_EMBED_HOST", "localhost")
 _VLLM_EMBED_PORT = os.getenv("VLLM_EMBED_PORT", "8001")
-VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}"
+VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}/v1"
 
 # vLLM instance for generation (Llama, etc.)
 _VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
