@@ -1,8 +1,8 @@
 """Tests for app.py API endpoints."""
+
 import json
 import os
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import patch
 
 
 class TestIndexPage:
@@ -15,8 +15,8 @@ class TestIndexPage:
 
     def test_index_page_shows_channels(self, client, with_db, mock_ollama_response):
         """API should list channels from DB."""
-        from db.models import VideoFolder
         from app import SessionLocal
+        from db.models import VideoFolder
 
         session = SessionLocal()
         folder = VideoFolder(folder_name="test-channel", original_playlist_id="PL_test")
@@ -35,9 +35,10 @@ class TestChannelApi:
 
     def test_list_channels(self, client, with_db, mock_ollama_response):
         """GET /api/channels should return channel list."""
-        from db.models import VideoFolder
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
+
+        from db.models import VideoFolder
 
         engine = create_engine(os.environ["DATABASE_URL"])
         Session = sessionmaker(bind=engine)
@@ -87,11 +88,9 @@ class TestSummarizeApi:
 
     def test_summarize_returns_task_id(self, client, with_db, mock_ollama_response):
         """Summarize endpoint should return a task ID."""
-        resp = client.post("/api/summarize_v2", json={
-            "channel_name": "test-channel",
-            "video_ids": ["vid1", "vid2"],
-            "model": "phi4"
-        })
+        resp = client.post(
+            "/api/summarize_v2", json={"channel_name": "test-channel", "video_ids": ["vid1", "vid2"], "model": "phi4"}
+        )
         assert resp.status_code == 200
         data = json.loads(resp.data)
         assert "task_id" in data

@@ -1,15 +1,15 @@
 # auth_utils.py
-import os
-import jwt
-from jwt import PyJWKClient
-from flask import request
 import logging
+import os
+
+import jwt
 from dotenv import load_dotenv
-from db.models import User
+from flask import request
+from jwt import PyJWKClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.sql import text
 
+from db.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +20,7 @@ CLOUDFLARE_ISSUER = os.getenv("CLOUDFLARE_ISSUER")
 CLOUDFLARE_AUD_TAG = os.getenv("CLOUDFLARE_AUD_TAG")
 
 DB_URL = os.environ["DATABASE_URL"]
-engine = create_engine(
-    DB_URL, 
-    echo=False,
-    pool_pre_ping=True,
-    pool_recycle=1800)
+engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)
 SessionLocal = sessionmaker(bind=engine)
 
 
@@ -43,7 +39,7 @@ def get_user_email_dev_mode():
     #     return cf_email
 
     # If you want to do JWT validation:
-    token = request.headers.get('Cf-Access-Jwt-Assertion') or request.cookies.get('CF_Authorization')
+    token = request.headers.get("Cf-Access-Jwt-Assertion") or request.cookies.get("CF_Authorization")
     if not token:
         return None  # not authenticated
 
@@ -52,17 +48,13 @@ def get_user_email_dev_mode():
         jwks_client = PyJWKClient(CLOUDFLARE_JWKS_URL)
         signing_key = jwks_client.get_signing_key_from_jwt(token)
         payload = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            audience=CLOUDFLARE_AUD_TAG,
-            issuer=CLOUDFLARE_ISSUER
+            token, signing_key.key, algorithms=["RS256"], audience=CLOUDFLARE_AUD_TAG, issuer=CLOUDFLARE_ISSUER
         )
         return payload.get("email")
     except jwt.exceptions.InvalidTokenError as e:
         logger.warning(f"Invalid CF Access token: {e}")
         return None
-    
+
 
 def get_current_user():
     """
