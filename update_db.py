@@ -1,9 +1,10 @@
 # update_db.py
-import os
 import logging
+import os
+
 from sqlalchemy import create_engine, text
 
-#from db.models import Base, Video, VideoFolder, SummariesV2
+# from db.models import Base, Video, VideoFolder, SummariesV2
 
 
 logging.basicConfig(level=logging.INFO)
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 # If using dotenv to load .env variables:
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass  # if python-dotenv not installed, just ensure DATABASE_URL is set externally.
@@ -18,7 +20,7 @@ except ImportError:
 DB_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/mydb")
 logger.info(f"Using DB_URL={DB_URL}")
 
-#DB_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/mydb")
+# DB_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/mydb")
 engine = create_engine(DB_URL)
 
 with engine.connect() as conn:

@@ -1,28 +1,28 @@
 # youtube_utils.py
-import os
 import json
 import logging
+import os
 import subprocess
 from datetime import datetime
 
-from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 from pytube import YouTube
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from youtube_transcript_api import NoTranscriptFound, YouTubeTranscriptApi
 
-from db.models import Base, Video, VideoFolder
+from db.models import Video, VideoFolder
 
 logger = logging.getLogger(__name__)
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/mydb")
-#engine = create_engine(DB_URL)
-engine = create_engine(
-    DB_URL, 
-    echo=False,
-    pool_pre_ping=True,
-    pool_recycle=1800)  # 30 minutes
-SessionLocal = sessionmaker(bind=engine)
+# DB_URL and SessionLocal are imported from app module to avoid duplication.
+# If this file is used standalone, define them:
+try:
+    from app import DB_URL, SessionLocal, engine
+except ImportError:
+    DB_URL = os.environ["DATABASE_URL"]
+    engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)
+    SessionLocal = sessionmaker(bind=engine)
+
 
 def download_channel_transcripts(channel_url, status_dict):
     """
@@ -32,8 +32,6 @@ def download_channel_transcripts(channel_url, status_dict):
     - Skip downloading transcripts if they are already in the DB
     - Report skipped videos as processed in the status_dict
     """
-    # Create tables if they don't exist (or use migrations in production)
-    Base.metadata.create_all(engine)
 
     # Get the immutable channel/playlist id and video list from YouTube
     channel_id, videos = get_channel_and_videos(channel_url)
@@ -50,12 +48,8 @@ def download_channel_transcripts(channel_url, status_dict):
         # Check if there is already a folder association for this playlist id.
         existing_folder = session.query(VideoFolder).filter_by(original_playlist_id=channel_id).first()
 
-        if existing_folder:
-            # Use the existing (human-friendly) folder name.
-            human_playlist_name = existing_folder.folder_name
-        else:
-            # If no folder exists yet, use the playlist id as the name.
-            human_playlist_name = channel_id
+        # Use the existing (human-friendly) folder name, or default to channel_id.
+        human_playlist_name = existing_folder.folder_name if existing_folder else channel_id
 
         processed_count = 0
         for video_meta in videos:
@@ -64,26 +58,15 @@ def download_channel_transcripts(channel_url, status_dict):
             upload_date = video_meta["upload_date"]
 
             # 1) Check if this video is already in DB with a transcript
-            existing_video = (
-                session.query(Video)
-                .filter_by(video_id=video_id)
-                .first()
-            )
-            if (existing_video
-                and existing_video.transcript_no_ts
-                and existing_video.transcript_no_ts.strip() != ""):
+            existing_video = session.query(Video).filter_by(video_id=video_id).first()
+            if existing_video and existing_video.transcript_no_ts and existing_video.transcript_no_ts.strip() != "":
                 # Already have a transcript => skip re-downloading
                 logger.info(f"Skipping transcript download for {video_id} (already in DB).")
                 status_dict["already_downloaded"] += 1
 
                 # Ensure folder association
-                ensure_folder_association(
-                    session,
-                    video_id,
-                    channel_id,
-                    human_playlist_name
-                )
-                
+                ensure_folder_association(session, video_id, channel_id, human_playlist_name)
+
                 processed_count += 1
                 status_dict["processed"] = processed_count
                 continue
@@ -116,7 +99,7 @@ def download_channel_transcripts(channel_url, status_dict):
                     title=title,
                     upload_date=upload_date,
                     transcript_with_ts=transcript_with_ts,
-                    transcript_no_ts=transcript_no_ts
+                    transcript_no_ts=transcript_no_ts,
                 )
                 session.add(video_obj)
                 session.commit()
@@ -128,12 +111,7 @@ def download_channel_transcripts(channel_url, status_dict):
                 session.commit()
 
             # 5) Ensure folder association
-            ensure_folder_association(
-                session,
-                video_id,
-                channel_id,
-                human_playlist_name
-            )
+            ensure_folder_association(session, video_id, channel_id, human_playlist_name)
 
             # Mark one newly downloaded
             status_dict["newly_downloaded"] += 1
@@ -150,19 +128,13 @@ def download_channel_transcripts(channel_url, status_dict):
 
 def ensure_folder_association(session, video_id, channel_id, folder_name):
     """
-    Helper to ensure there's a row in video_folders linking this 
+    Helper to ensure there's a row in video_folders linking this
     video_id to the channel/playlist (folder_name + original_playlist_id).
     """
-    folder_assoc = session.query(VideoFolder).filter_by(
-        original_playlist_id=channel_id,
-        video_id=video_id
-    ).first()
+    folder_assoc = session.query(VideoFolder).filter_by(original_playlist_id=channel_id, video_id=video_id).first()
     if not folder_assoc:
         folder_assoc = VideoFolder(
-            folder_name=folder_name,
-            original_playlist_id=channel_id,
-            video_id=video_id,
-            last_modified=datetime.utcnow()
+            folder_name=folder_name, original_playlist_id=channel_id, video_id=video_id, last_modified=datetime.utcnow()
         )
         session.add(folder_assoc)
         session.commit()
@@ -188,11 +160,7 @@ def get_channel_and_videos(channel_url):
         vid_id = entry.get("id")
         vid_title = entry.get("title", "Untitled")
         upload_date = entry.get("upload_date", "UnknownDate")
-        videos.append({
-            "video_id": vid_id,
-            "title": vid_title,
-            "upload_date": upload_date
-        })
+        videos.append({"video_id": vid_id, "title": vid_title, "upload_date": upload_date})
 
     logger.info(f"Found {len(videos)} videos for '{channel_id}' using {channel_url}")
     return channel_id, videos
@@ -235,17 +203,17 @@ def get_transcript_for_video(video_id):
     Raise Exception if not found.
     """
     try:
-        return YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+        return YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
     except NoTranscriptFound:
         logger.info(f"No transcript via youtube_transcript_api for '{video_id}', trying pytube.")
         yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
         caption = None
         for code, c in yt.captions.items():
-            if 'en' in code.lower():
+            if "en" in code.lower():
                 caption = c
                 break
         if caption is None:
-            raise Exception("No English caption found via pytube.")
+            raise Exception("No English caption found via pytube.") from None
         srt_captions = caption.generate_srt_captions()
         return parse_srt(srt_captions)
 
@@ -255,7 +223,7 @@ def parse_srt(srt_text):
     Convert raw SRT text => list of dicts:
         [ { "text":..., "start":..., "duration":... }, ... ]
     """
-    lines = srt_text.split('\n')
+    lines = srt_text.split("\n")
     entries = []
     i = 0
     while i < len(lines):
@@ -263,7 +231,7 @@ def parse_srt(srt_text):
         if line.isdigit():
             i += 1
             time_line = lines[i].strip()
-            start_str, end_str = time_line.split('-->')
+            start_str, end_str = time_line.split("-->")
             start_sec = srt_time_to_seconds(start_str.strip())
             end_sec = srt_time_to_seconds(end_str.strip())
 
@@ -275,11 +243,7 @@ def parse_srt(srt_text):
 
             caption_text = " ".join(text_lines)
             duration = end_sec - start_sec
-            entries.append({
-                "text": caption_text,
-                "start": start_sec,
-                "duration": duration
-            })
+            entries.append({"text": caption_text, "start": start_sec, "duration": duration})
         i += 1
     return entries
 
@@ -289,9 +253,9 @@ def srt_time_to_seconds(t_str):
     Parse 'HH:MM:SS,mmm' => total seconds (float).
     e.g. "00:01:23,456" -> 83.456
     """
-    h, m, s_milli = t_str.split(':')
-    s, ms = s_milli.split(',')
-    return int(h)*3600 + int(m)*60 + float(s) + float(ms)/1000.0
+    h, m, s_milli = t_str.split(":")
+    s, ms = s_milli.split(",")
+    return int(h) * 3600 + int(m) * 60 + float(s) + float(ms) / 1000.0
 
 
 def build_transcript_variants(transcript_entries):
@@ -333,11 +297,9 @@ def list_downloaded_videos(channel_id):
 
         videos = []
         for v in video_rows:
-            videos.append({
-                "video_id": v.video_id,
-                "title": v.title or "Untitled",
-                "upload_date": v.upload_date or "UnknownDate"
-            })
+            videos.append(
+                {"video_id": v.video_id, "title": v.title or "Untitled", "upload_date": v.upload_date or "UnknownDate"}
+            )
         return videos
     finally:
         session.close()
