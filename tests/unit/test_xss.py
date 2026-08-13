@@ -17,11 +17,12 @@ class TestMdSafe:
         assert "alert(1)" in result  # text still visible, just escaped
 
     def test_img_onerror_escaped(self):
-        """Inline event handlers must be neutralised."""
+        """Inline event handlers must be neutralised (img tag must be escaped)."""
         from app import md_safe
 
         result = md_safe('<img src=x onerror="alert(1)">')
-        assert "onerror" not in result.lower() or "&lt;" in result
+        # The entire <img tag must be escaped — no live element can execute onerror
+        assert "<img" not in result
 
     def test_normal_markdown_still_renders(self):
         """Regular markdown (bold, italic, links) must still work."""
