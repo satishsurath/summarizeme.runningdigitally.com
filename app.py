@@ -918,8 +918,8 @@ def api_chat_channel(channel_name):
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
-        # 3) Retrieve relevant chunks from the selected view (safe: template lookup, not f-string)
-        sql_top_chunks = text(CHAT_CHANNEL_SQL_TEMPLATES[selected_view])
+        # 3) Retrieve relevant chunks from the selected view (safe: whitelist key, % substitutes view name)
+        sql_top_chunks = text(CHAT_CHANNEL_SQL_TEMPLATES[selected_view] % {"view": selected_view})
 
         chunk_rows = session.execute(sql_top_chunks, {
             "q_emb": user_query_emb,
@@ -966,7 +966,7 @@ Please provide a concise answer:
             result_json = session.execute(sql_generate, {
                 "model_name": model_name,
                 "prompt": prompt_str,
-                "llm_url": LLAMA_URL
+                "llm_url": _LLM_GEN_URL
             }).scalar()
 
             if not result_json:
@@ -1093,8 +1093,8 @@ def api_chat_video(video_id):
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
-        # 4) SELECT relevant chunks from the chosen embeddings table (safe: template lookup)
-        sql_top_chunks = text(CHAT_VIDEO_SQL_TEMPLATES[selected_table])
+        # 4) SELECT relevant chunks from the chosen embeddings table (safe: whitelist key, % substitutes table name)
+        sql_top_chunks = text(CHAT_VIDEO_SQL_TEMPLATES[selected_table] % {"view": selected_table})
 
         chunk_rows = session.execute(sql_top_chunks, {
             "q_emb": user_query_emb,

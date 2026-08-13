@@ -181,6 +181,6 @@ def ollama_generate_chunk(model_name, prompt, client=None):
             model=model_name,
             messages=[{"role": "user", "content": prompt}]
         )
-        data = response.get("message", {}).get("content", "").strip()
+        data = response.message.content or ""
 
     return data.strip() if data else ""
