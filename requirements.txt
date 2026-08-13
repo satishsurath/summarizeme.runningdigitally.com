@@ -29,7 +29,6 @@ MarkupSafe==3.0.2
 multidict==6.1.0
 mypy-extensions==1.0.0
 ollama==0.4.5
-openai==0.27.0
 ordered-set==4.1.0
 packaging==24.2
 propcache==0.2.1
