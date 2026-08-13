@@ -920,15 +920,22 @@ Please provide a concise answer:
             if not result_json:
                 final_answer = "No answer was returned by the model."
             else:
-                final_answer = result_json.get("response", "[No response in JSON]")
+                # PGAI may return the text directly as a string or as a dict
+                final_answer = (
+                    result_json.get("response", "[No response in JSON]")
+                    if isinstance(result_json, dict)
+                    else str(result_json)
+                )
 
             # same logic to append the used_videos_html
             if unique_videos:
                 used_videos_html = "<h4>Videos used in Context:</h4>\n<ul>\n"
                 for vid_id, vid_title in unique_videos.items():
+                    safe_vid_id = _html_escape(vid_id)
+                    safe_vid_title = _html_escape(vid_title)
                     used_videos_html += f"""
 <li>
-    <a href="https://www.youtube.com/watch?v={vid_id}" target="_blank">
+    <a href="https://www.youtube.com/watch?v={safe_vid_id}" target="_blank">
         <svg style="fill:#333; height:1em; width:1em;" version="1.1"
              xmlns="http://www.w3.org/2000/svg"
              xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -937,13 +944,13 @@ Please provide a concise answer:
         </svg>
     </a>
     &nbsp;
-    <a href="/chat-video/{vid_id}">
+    <a href="/chat-video/{safe_vid_id}">
         <svg xmlns="http://www.w3.org/2000/svg" height="24px"
              viewBox="0 -960 960 960" width="24px">
         <!-- SVG icon (truncated for readability) -->
         </svg>
     </a>
-    {vid_title}
+    {safe_vid_title}
 </li>
 """
                 used_videos_html += "</ul>\n"
@@ -1077,7 +1084,12 @@ def api_chat_video(video_id):
             if not result_json:
                 final_answer = "No answer was returned by the model."
             else:
-                final_answer = result_json.get("response", "[No response in JSON]")
+                # PGAI may return the text directly as a string or as a dict
+                final_answer = (
+                    result_json.get("response", "[No response in JSON]")
+                    if isinstance(result_json, dict)
+                    else str(result_json)
+                )
 
     except Exception as e:
         logger.exception("Error while handling chat-video")
