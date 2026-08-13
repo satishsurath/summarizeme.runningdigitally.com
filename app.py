@@ -55,7 +55,7 @@ VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}/v1"
 # vLLM instance for generation (Llama, etc.)
 _VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
 _VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
-VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
+VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}/v1"
 
 # Ollama fallback (legacy)
 _REMOTE_OLLAMA_HOST = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
