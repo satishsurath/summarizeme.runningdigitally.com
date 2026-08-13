@@ -59,8 +59,11 @@ def download_channel_transcripts(channel_url, status_dict):
             existing_video = session.query(Video).filter_by(video_id=video_id).first()
 
             if existing_video:
-                processed_count += 1
-                continue
+                ensure_folder_association(session, video_id, channel_id, human_playlist_name)
+                if existing_video.transcript_no_ts and existing_video.transcript_no_ts.strip():
+                    processed_count += 1
+                    status_dict["processed"] = processed_count
+                    continue
 
             # Download transcript via yt-dlp wrapper (more reliable)
             parsed = get_transcript_for_video(video_id)
@@ -70,15 +73,19 @@ def download_channel_transcripts(channel_url, status_dict):
                 processed_count += 1
                 continue
 
-            # Save video record
-            video_obj = Video(
-                video_id=video_id,
-                title=video_title,
-                transcript_with_ts=None,
-                transcript_no_ts=None,
-            )
-            session.add(video_obj)
-            session.flush()
+            # Save or update video record
+            if existing_video:
+                video_obj = existing_video
+                video_obj.title = video_title
+            else:
+                video_obj = Video(
+                    video_id=video_id,
+                    title=video_title,
+                    transcript_with_ts=None,
+                    transcript_no_ts=None,
+                )
+                session.add(video_obj)
+                session.flush()
 
             # Save transcript
             srt_lines = []
