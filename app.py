@@ -9,6 +9,7 @@ from functools import wraps
 import markdown
 from dotenv import load_dotenv
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
+from markupsafe import escape as _html_escape
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import text
@@ -20,18 +21,17 @@ from db.models import SummariesV2, User, Video, VideoFolder
 from summarizer_v2 import build_prompts_for_chunk, chunk_transcript, ollama_generate_chunk
 from youtube_utils import download_channel_transcripts
 
-# Safe mode: escape HTML output to prevent XSS
-try:
 
-    def _md(s):
-        return markdown.markdown(s, safe_mode="escape") if s else ""
-except TypeError:
+def md_safe(s):
+    """Render markdown to HTML, escaping raw HTML first to prevent XSS.
 
-    def _md(s):
-        return markdown.markdown(s) if s else ""
+    markupsafe.escape converts <, >, &, ", ' to entities before markdown
+    processes the string, so injected script/HTML tags are neutralised.
+    Note: Markdown 3.x dropped safe_mode; pre-escaping the input is the
+    correct replacement.
+    """
+    return markdown.markdown(str(_html_escape(s))) if s else ""
 
-
-md_safe = _md
 
 DB_URL = os.environ["DATABASE_URL"]
 # engine = create_engine(DB_URL, echo=False)
