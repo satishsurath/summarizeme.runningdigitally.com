@@ -25,77 +25,28 @@ services:
       timeout: 5s
       retries: 5
 
-  # vLLM for embeddings (nomic-embed-text)
-  vllm-embed:
-    image: vllm/vllm-openai:latest
-    ports:
-      - "8001:8000"
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
-    volumes:
-      - vllm_cache:/root/.cache/huggingface
-    command: --model nomic-ai/nomic-embed-text-v1.5 --max-model-len 2048
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/v1/models || exit 1"]
-      interval: 10s
-      timeout: 30s
-      retries: 10
-      start_period: 120s
-
-  # vLLM for generation (summarization, chat)
-  vllm-gen:
-    image: vllm/vllm-openai:latest
-    ports:
-      - "8000:8000"
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
-    volumes:
-      - vllm_cache:/root/.cache/huggingface
-    command: --model meta-llama/Llama-3.1-8B-Instruct --max-model-len 4096
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/v1/models || exit 1"]
-      interval: 10s
-      timeout: 30s
-      retries: 10
-      start_period: 120s
-
   app:
     build:
       context: .
       dockerfile: Dockerfile.dev
     ports:
-      - "5000:5000"
+      - "5001:5000"
     environment:
       DATABASE_URL: postgresql://summarizeme:summarizeme_pass@db:5432/summarizeme
-      VLLM_EMBED_HOST: vllm-embed
-      VLLM_EMBED_PORT: "8000"
-      VLLM_GEN_HOST: vllm-gen
-      VLLM_GEN_PORT: "8000"
       REDIS_URL: redis://redis:6379/0
       FLASK_ENV: development
       DEV_AUTH_ENABLED: "true"
+      # Remote vLLM endpoints (production backend)
+      VLLM_EMBED_HOST: <vllm-host>
+      VLLM_EMBED_PORT: "8001"
+      VLLM_EMBED_API_KEY: 11f9c5bce6d2ab58d28e7787b4fe6bcb68868d89aebe5025958b6e7ad109c209
+      VLLM_GEN_HOST: <vllm-host>
+      VLLM_GEN_PORT: "8000"
+      VLLM_GEN_API_KEY: 875571fb3a3eee6c53af8ab909b75a5f9176cf80db45f3bbcec2cdf69c6ed27d
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      vllm-embed:
-        condition: service_healthy
-      vllm-gen:
         condition: service_healthy
     volumes:
       - .:/app
@@ -103,4 +54,3 @@ services:
 
 volumes:
   postgres_data:
-  vllm_cache:
