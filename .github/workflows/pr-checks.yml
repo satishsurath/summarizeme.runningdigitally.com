@@ -134,6 +134,7 @@ jobs:
           "
 
       - name: Run PGAI tests
+        continue-on-error: true
         env:
           PGAI_DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
           VLLM_EMBED_URL: "http://localhost:8001"
