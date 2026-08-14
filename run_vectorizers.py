@@ -1,131 +1,237 @@
-#!/usr/bin/env python3
 # run_vectorizers.py
-# Create PGAI vectorizers for embeddings — works with both vLLM and Ollama.
 
 import os
-import sys
 
 import psycopg2
 from dotenv import load_dotenv
 
 
-def build_embedding_func(use_vllm):
-    """Return the embedding SQL fragment for vLLM or Ollama mode."""
-    if use_vllm:
-        embed_host = os.getenv("VLLM_EMBED_HOST", "localhost")
-        embed_port = os.getenv("VLLM_EMBED_PORT", "8001")
-        embed_api_key = os.getenv("VLLM_EMBED_API_KEY", "")
-        embed_url = f"http://{embed_host}:{embed_port}/v1"
-        embed_model = "nemo-nomic-embed-text-v1.5"
-# NOTE: PGAI embeds the API key in the vectorizer definition SQL.
-        # This is stored in the pgai_vectorizer table in Postgres.
-        # Protect the database from unauthorized access.
-        return f"ai.embedding_openai('{embed_model}', 768, api_key => '{embed_api_key}', base_url => '{embed_url}')"
-    else:
-        ollama_host = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
-        return f"ai.embedding_ollama('nomic-embed-text', 768, base_url => 'http://{ollama_host}:11434')"
-
-
-TRANSCRIPT_SQL = """
-SELECT ai.create_vectorizer(
-    'public.videos'::regclass,
-    embedding => {embed_func},
-    chunking => ai.chunking_recursive_character_text_splitter(
-        'transcript_no_ts',
-        1000,
-        200,
-        separators => array[E'\\n\\n', E'\\n', '.', '?', '!']
-    ),
-    formatting => ai.formatting_python_template(
-        'Video Title: $title\\nTranscript chunk:\\n$chunk'
-    ),
-    indexing => ai.indexing_default()
-);
-"""
-
-SUMMARIES_V2_TEMPLATE = """
-SELECT ai.create_vectorizer(
-    'public.summaries_v2'::regclass,
-    destination => '{destination}',
-    embedding => {embed_func},
-    chunking => ai.chunking_recursive_character_text_splitter(
-        '{column}',
-        2000,
-        200,
-        separators => array[
-            E'^# ',
-            E'^## ',
-            E'^### ',
-            E'^#### ',
-            E'^##### ',
-            E'\\n\\n',
-            E'\\n',
-            '.',
-            '?',
-            '!'
-        ],
-        is_separator_regex => true
-    ),
-    formatting => ai.formatting_python_template(
-        'Video ID: $video_id\\nVideo Title: $video_title\\n{label} chunk:\\n$chunk'
-    ),
-    indexing => ai.indexing_default()
-);
-"""
-
-
 def main():
+
+    # 1) Load your DB connection info from environment:
+    # Read the env file and load the values
     load_dotenv()
 
+    # vLLM for embeddings (used by vectorizer creation)
+    _embed_host = os.getenv("VLLM_EMBED_HOST", "localhost")
+    _embed_port = os.getenv("VLLM_EMBED_PORT", "8001")
+    _ollama_host = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
+    ollama_host = _embed_host if os.getenv("VLLM_EMBED_HOST") else _ollama_host
+
     DB_URL = os.environ["DATABASE_URL"]
-    use_vllm = os.getenv("VLLM_EMBED_HOST") is not None
+    print(f"DB_URL: {DB_URL}")
 
-    print(f"[INFO] Using {'vLLM' if use_vllm else 'Ollama'} for embeddings")
-    print(f"[INFO] DB_URL: {DB_URL}")
+    OLLAMA_URL = f"http://{ollama_host}:11434"
+    if os.getenv("VLLM_EMBED_HOST"):
+        OLLAMA_URL = f"http://{_embed_host}:{_embed_port}"
 
-    embed_func = build_embedding_func(use_vllm)
-
+    # Connect to Postgres
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()
 
     try:
-        # 1) Ensure pgai extension installed
+        # 2) Ensure pgai extension installed
         print("[INFO] Ensuring pgai extension is installed...")
         cur.execute("CREATE EXTENSION IF NOT EXISTS ai CASCADE;")
         conn.commit()
 
-        # 2) Create vectorizer for transcript
+        # 1) Create vectorizer for transcript (videos.transcript_no_ts).
+        #    This might already exist, but we'll show it for completeness.
+        transcript_sql = f"""
+        SELECT ai.create_vectorizer(
+            'public.videos'::regclass,
+            embedding => ai.embedding_ollama(
+                'nomic-embed-text',
+                768,
+                base_url => '{OLLAMA_URL}'
+            ),
+            chunking => ai.chunking_recursive_character_text_splitter(
+                'transcript_no_ts',
+                1000,
+                200,
+                separators => array[E'\\n\\n', E'\\n', '.', '?', '!']
+            ),
+            formatting => ai.formatting_python_template(
+                'Video Title: $title\\nTranscript chunk:\\n$chunk'
+            ),
+            indexing => ai.indexing_default()
+        );
+        """
+
+        # 2) Create vectorizers for each summaries_v2 column.
+        #    Because 'summaries_v2' has a PK (id), this will succeed.
+        #    We can reference $video_title and $video_id in the formatting template.
+
+        # Common chunking config for markdown headings
+        # chunk_size=2000, chunk_overlap=200
+        # first splitting on headings, then fallback to line breaks + punctuation
+        # is_separator_regex => true because we're using ^# anchors in the array.
+
+        # Vectorizer for concise_summary
+        concise_summary_sql = f"""
+        SELECT ai.create_vectorizer(
+            'public.summaries_v2'::regclass,
+            destination => 'summaries_v2_concise_summary_embedding',  -- <--- UNIQUE DESTINATION
+            embedding => ai.embedding_ollama(
+                'nomic-embed-text',
+                768,
+                base_url => '{OLLAMA_URL}'
+            ),
+            chunking => ai.chunking_recursive_character_text_splitter(
+                'concise_summary',
+                2000,
+                200,
+                separators => array[
+                    E'^# ',
+                    E'^## ',
+                    E'^### ',
+                    E'^#### ',
+                    E'^##### ',
+                    E'\\n\\n',
+                    E'\\n',
+                    '.',
+                    '?',
+                    '!'
+                ],
+                is_separator_regex => true
+            ),
+            formatting => ai.formatting_python_template(
+                'Video ID: $video_id\\nVideo Title: $video_title\\nConcise Summary chunk:\\n$chunk'
+            ),
+            indexing => ai.indexing_default()
+        );
+        """
+
+        # Vectorizer for key_topics
+        key_topics_sql = f"""
+        SELECT ai.create_vectorizer(
+            'public.summaries_v2'::regclass,
+            destination => 'summaries_v2_key_topics_embedding',  -- <--- UNIQUE DESTINATION
+            embedding => ai.embedding_ollama(
+                'nomic-embed-text',
+                768,
+                base_url => '{OLLAMA_URL}'
+            ),
+            chunking => ai.chunking_recursive_character_text_splitter(
+                'key_topics',
+                2000,
+                200,
+                separators => array[
+                    E'^# ',
+                    E'^## ',
+                    E'^### ',
+                    E'^#### ',
+                    E'^##### ',
+                    E'\\n\\n',
+                    E'\\n',
+                    '.',
+                    '?',
+                    '!'
+                ],
+                is_separator_regex => true
+            ),
+            formatting => ai.formatting_python_template(
+                'Video ID: $video_id\\nVideo Title: $video_title\\nKey Topics chunk:\\n$chunk'
+            ),
+            indexing => ai.indexing_default()
+        );
+        """
+
+        # Vectorizer for important_takeaways
+        important_takeaways_sql = f"""
+        SELECT ai.create_vectorizer(
+            'public.summaries_v2'::regclass,
+            destination => 'summaries_v2_important_takeaways_embedding', -- <--- UNIQUE DESTINATION
+            embedding => ai.embedding_ollama(
+                'nomic-embed-text',
+                768,
+                base_url => '{OLLAMA_URL}'
+            ),
+            chunking => ai.chunking_recursive_character_text_splitter(
+                'important_takeaways',
+                2000,
+                200,
+                separators => array[
+                    E'^# ',
+                    E'^## ',
+                    E'^### ',
+                    E'^#### ',
+                    E'^##### ',
+                    E'\\n\\n',
+                    E'\\n',
+                    '.',
+                    '?',
+                    '!'
+                ],
+                is_separator_regex => true
+            ),
+            formatting => ai.formatting_python_template(
+                'Video ID: $video_id\\nVideo Title: $video_title\\nImportant Takeaways chunk:\\n$chunk'
+            ),
+            indexing => ai.indexing_default()
+        );
+        """
+
+        # Vectorizer for comprehensive_notes
+        comprehensive_notes_sql = f"""
+        SELECT ai.create_vectorizer(
+            'public.summaries_v2'::regclass,
+            destination => 'summaries_v2_comprehensive_notes_embedding', -- <--- UNIQUE DESTINATION
+            embedding => ai.embedding_ollama(
+                'nomic-embed-text',
+                768,
+                base_url => '{OLLAMA_URL}'
+            ),
+            chunking => ai.chunking_recursive_character_text_splitter(
+                'comprehensive_notes',
+                2000,
+                200,
+                separators => array[
+                    E'^# ',
+                    E'^## ',
+                    E'^### ',
+                    E'^#### ',
+                    E'^##### ',
+                    E'\\n\\n',
+                    E'\\n',
+                    '.',
+                    '?',
+                    '!'
+                ],
+                is_separator_regex => true
+            ),
+            formatting => ai.formatting_python_template(
+                'Video ID: $video_id\\nVideo Title: $video_title\\nComprehensive Notes chunk:\\n$chunk'
+            ),
+            indexing => ai.indexing_default()
+        );
+        """
+
         print("[INFO] Creating transcript vectorizer for videos.transcript_no_ts...")
-        cur.execute(TRANSCRIPT_SQL.format(embed_func=embed_func))
+        cur.execute(transcript_sql)
 
-        # 3) Create vectorizers for summaries_v2 columns
-        vectorizer_configs = [
-            ("summaries_v2_concise_summary_embedding", "concise_summary", "Concise Summary"),
-            ("summaries_v2_key_topics_embedding", "key_topics", "Key Topics"),
-            ("summaries_v2_important_takeaways_embedding", "important_takeaways", "Important Takeaways"),
-            ("summaries_v2_comprehensive_notes_embedding", "comprehensive_notes", "Comprehensive Notes"),
-        ]
+        print("[INFO] Creating concise_summary vectorizer...")
+        cur.execute(concise_summary_sql)
 
-        for dest, col, label in vectorizer_configs:
-            sql = SUMMARIES_V2_TEMPLATE.format(
-                destination=dest,
-                column=col,
-                label=label,
-                embed_func=embed_func,
-            )
-            print(f"[INFO] Creating {label} vectorizer ({dest})...")
-            cur.execute(sql)
+        print("[INFO] Creating key_topics vectorizer...")
+        cur.execute(key_topics_sql)
+
+        print("[INFO] Creating important_takeaways vectorizer...")
+        cur.execute(important_takeaways_sql)
+
+        print("[INFO] Creating comprehensive_notes vectorizer...")
+        cur.execute(comprehensive_notes_sql)
 
         conn.commit()
-        print("[SUCCESS] All vectorizers created successfully!")
 
     except Exception as e:
         conn.rollback()
         print(f"[ERROR] Unable to create vectorizers: {e}")
-        sys.exit(1)
     finally:
         cur.close()
         conn.close()
+
+    print("[SUCCESS] All vectorizers created successfully!")
 
 
 if __name__ == "__main__":

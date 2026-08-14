@@ -50,12 +50,12 @@ load_dotenv()
 # vLLM instance for embeddings (nomic-embed-text)
 _VLLM_EMBED_HOST = os.getenv("VLLM_EMBED_HOST", "localhost")
 _VLLM_EMBED_PORT = os.getenv("VLLM_EMBED_PORT", "8001")
-VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}/v1"
+VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}"
 
 # vLLM instance for generation (Llama, etc.)
 _VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
 _VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
-VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}/v1"
+VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
 
 # Ollama fallback (legacy)
 _REMOTE_OLLAMA_HOST = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
@@ -97,10 +97,6 @@ def require_role(allowed_roles):
             if not email:
                 # not authenticated
                 return abort(403, "Unauthorized")
-            if os.getenv("DEV_AUTH_ENABLED") == "true" and email:
-                # In dev mode with auth, treat dev@localhost as admin
-                if email == "dev@localhost" and role == "reader":
-                    role = "admin"
             if role not in allowed_roles:
                 return abort(403, f"User {email} (role={role}) not allowed.")
             return f(*args, **kwargs)
@@ -205,7 +201,6 @@ def api_channel_start():
 
 
 @app.route("/api/channel/status/<task_id>", methods=["GET"])
-@require_role(["admin", "member"])
 def api_channel_status(task_id):
     """
     Returns the status of an ongoing channel download process.
@@ -217,7 +212,6 @@ def api_channel_status(task_id):
 
 
 @app.route("/api/videos/<channel_name>", methods=["GET"])
-@require_role(["admin", "member"])
 def api_get_videos(channel_name):
     page = int(request.args.get("page", 1))
     page_size = int(request.args.get("page_size", 5))  # default 5 if not provided
@@ -286,7 +280,6 @@ def api_get_videos(channel_name):
 
 
 @app.route("/api/summarize_v2", methods=["POST"])
-@require_role(["admin"])
 def api_summarize_v2():
     """
     Generate a "v2" summary for multiple videos (SummariesV2).
@@ -409,7 +402,6 @@ def api_summarize_v2():
 
 
 @app.route("/api/summarize_v2/status/<task_id>", methods=["GET"])
-@require_role(["admin", "member"])
 def api_summarize_v2_status(task_id):
     """
     Returns progress for the SummariesV2 generation task.
@@ -421,7 +413,6 @@ def api_summarize_v2_status(task_id):
 
 
 @app.route("/api/channels", methods=["GET"])
-@require_role(["admin", "member"])
 def api_list_channels():
     session = SessionLocal()
     try:
@@ -599,7 +590,6 @@ def api_delete_channel():
 
 
 @app.route("/api/all-tasks", methods=["GET"])
-@require_role(["admin", "member"])
 def api_all_tasks():
     """
     Return a list of all tasks (downloads and summaries) in a single JSON array.
@@ -636,7 +626,6 @@ def api_all_tasks():
 
 
 @app.route("/api/ollama/models", methods=["GET"])
-@require_role(["admin", "member"])
 def api_ollama_models():
     """
     Returns model lists from both vLLM instances (if configured).
@@ -649,8 +638,7 @@ def api_ollama_models():
         models = []
         for url in [_LLM_EMBED_URL, _LLM_GEN_URL]:
             try:
-                # VLLM base URLs already end in /v1; append /models directly.
-                resp = requests.get(f"{url}/models", timeout=10)
+                resp = requests.get(f"{url}/v1/models", timeout=10)
                 resp.raise_for_status()
                 data = resp.json()
                 if "data" in data:
@@ -831,7 +819,6 @@ def chat_channel_page(channel_name):
 
 
 @app.route("/api/chat-channel/<channel_name>", methods=["POST"])
-@require_role(["admin"])
 def api_chat_channel(channel_name):
     """
     AJAX endpoint to handle chat queries for a given channel.
@@ -878,7 +865,7 @@ def api_chat_channel(channel_name):
 
         user_query_emb = session.execute(
             sql_embed,
-            {"model_name": "nemo-nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
+            {"model_name": "nomic-ai/nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
         ).scalar()
 
         if not user_query_emb:
@@ -1016,7 +1003,6 @@ def chat_video_page(video_id):
 
 
 @app.route("/api/chat-video/<video_id>", methods=["POST"])
-@require_role(["admin"])
 def api_chat_video(video_id):
     """
     AJAX endpoint for chatting with a single video's content.
@@ -1059,7 +1045,7 @@ def api_chat_video(video_id):
 
         user_query_emb = session.execute(
             sql_embed,
-            {"model_name": "nemo-nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
+            {"model_name": "nomic-ai/nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
         ).scalar()
 
         if not user_query_emb:

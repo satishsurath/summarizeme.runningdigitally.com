@@ -22,12 +22,12 @@ load_dotenv()
 # vLLM (OpenAI-compatible) or Ollama (backend-agnostic)
 _VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
 _VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
-_VLLM_GEN_API_KEY = os.getenv("VLLM_GEN_API_KEY", "")
+_VLLM_GEN_API_KEY = os.getenv("VLLM_GEN_API_KEY", "not-needed")
 _OLLAMA_HOST = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
 _USE_VLLM = os.getenv("VLLM_GEN_HOST") is not None
 
 # Build URLs
-VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}/v1"
+VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
 OLLAMA_URL = f"http://{_OLLAMA_HOST}:11434"
 LLM_BASE_URL = VLLM_GEN_URL if _USE_VLLM else OLLAMA_URL
 
@@ -171,18 +171,15 @@ def ollama_generate_chunk(model_name, prompt, client=None):
         if not _HAS_OPENAI:
             print("[ERROR] openai SDK not installed")
             return ""
-        chat_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY or "not-needed")
+        chat_client = client or _OpenAI(
+                base_url=llm_url, api_key=_VLLM_GEN_API_KEY
+            )
         response = chat_client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=4096,
         )
-        data = ""
-        if response.choices:
-            _m = response.choices[0].message
-            # Reasoning models (e.g. Qwen3.6) put the answer in message.content,
-            # but thinking content in message.reasoning. Prefer content; fall back to reasoning.
-            data = _m.content or _m.reasoning or ""
+        data = response.choices[0].message.content if response.choices else ""
     else:
         if not _HAS_OLLAMA:
             print("[ERROR] ollama SDK not installed")
