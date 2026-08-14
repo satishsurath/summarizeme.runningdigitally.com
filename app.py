@@ -205,6 +205,7 @@ def api_channel_start():
 
 
 @app.route("/api/channel/status/<task_id>", methods=["GET"])
+@require_role(["admin", "member"])
 def api_channel_status(task_id):
     """
     Returns the status of an ongoing channel download process.
@@ -216,6 +217,7 @@ def api_channel_status(task_id):
 
 
 @app.route("/api/videos/<channel_name>", methods=["GET"])
+@require_role(["admin", "member"])
 def api_get_videos(channel_name):
     page = int(request.args.get("page", 1))
     page_size = int(request.args.get("page_size", 5))  # default 5 if not provided
@@ -284,6 +286,7 @@ def api_get_videos(channel_name):
 
 
 @app.route("/api/summarize_v2", methods=["POST"])
+@require_role(["admin"])
 def api_summarize_v2():
     """
     Generate a "v2" summary for multiple videos (SummariesV2).
@@ -406,6 +409,7 @@ def api_summarize_v2():
 
 
 @app.route("/api/summarize_v2/status/<task_id>", methods=["GET"])
+@require_role(["admin", "member"])
 def api_summarize_v2_status(task_id):
     """
     Returns progress for the SummariesV2 generation task.
@@ -417,6 +421,7 @@ def api_summarize_v2_status(task_id):
 
 
 @app.route("/api/channels", methods=["GET"])
+@require_role(["admin", "member"])
 def api_list_channels():
     session = SessionLocal()
     try:
@@ -594,6 +599,7 @@ def api_delete_channel():
 
 
 @app.route("/api/all-tasks", methods=["GET"])
+@require_role(["admin", "member"])
 def api_all_tasks():
     """
     Return a list of all tasks (downloads and summaries) in a single JSON array.
@@ -630,6 +636,7 @@ def api_all_tasks():
 
 
 @app.route("/api/ollama/models", methods=["GET"])
+@require_role(["admin", "member"])
 def api_ollama_models():
     """
     Returns model lists from both vLLM instances (if configured).
@@ -642,7 +649,8 @@ def api_ollama_models():
         models = []
         for url in [_LLM_EMBED_URL, _LLM_GEN_URL]:
             try:
-                resp = requests.get(f"{url}/v1/models", timeout=10)
+                # VLLM base URLs already end in /v1; append /models directly.
+                resp = requests.get(f"{url}/models", timeout=10)
                 resp.raise_for_status()
                 data = resp.json()
                 if "data" in data:
@@ -823,6 +831,7 @@ def chat_channel_page(channel_name):
 
 
 @app.route("/api/chat-channel/<channel_name>", methods=["POST"])
+@require_role(["admin"])
 def api_chat_channel(channel_name):
     """
     AJAX endpoint to handle chat queries for a given channel.
@@ -1007,6 +1016,7 @@ def chat_video_page(video_id):
 
 
 @app.route("/api/chat-video/<video_id>", methods=["POST"])
+@require_role(["admin"])
 def api_chat_video(video_id):
     """
     AJAX endpoint for chatting with a single video's content.
