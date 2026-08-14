@@ -51,55 +51,69 @@ def download_channel_transcripts(channel_url, status_dict):
         processed_count = 0
         new_count = 0
 
-        for video in videos:
-            video_id = video.get("video_id")
-            video_title = video.get("title", "Untitled")
+        for i, video in enumerate(videos):
+            try:
+                video_id = video.get("video_id")
+                video_title = video.get("title") or "Untitled (no title)"
+                logger.info(f"[{i+1}/{len(videos)}] Processing: {video_id} - {video_title[:30]}")
+                if not video_id:
+                    logger.error(f"Skipping video with None video_id: {video}")
+                    status_dict["errors"].append(f"None video_id at index {i}")
+                    processed_count += 1
+                    continue
 
-            # Check if already downloaded
-            existing_video = session.query(Video).filter_by(video_id=video_id).first()
+                # Check if already downloaded
+                existing_video = session.query(Video).filter_by(video_id=video_id).first()
 
-            if existing_video:
+                if existing_video:
+                    processed_count += 1
+                    continue
+
+                # Download transcript via yt-dlp wrapper (more reliable)
+                logger.info(f"  Downloading transcript for {video_id}")
+                parsed = get_transcript_for_video(video_id)
+                logger.info(f"  Got {len(parsed)} transcript entries for {video_id}")
+
+                if not parsed:
+                    status_dict["errors"].append(f"Failed to get transcript for {video_id} ({video_title[:30]}...)")
+                    processed_count += 1
+                    continue
+
+                # Save video record
+                video_obj = Video(
+                    video_id=video_id,
+                    title=video_title,
+                    transcript_with_ts=None,
+                    transcript_no_ts=None,
+                )
+                session.add(video_obj)
+                session.flush()
+
+                # Save transcript
+                srt_lines = []
+                for t in parsed:
+                    txt = t.get("text", "")
+                    if txt:
+                        srt_lines.append("[%.1fs] " % t["start"] + txt)
+                srt_text = "\n".join(srt_lines)
+                video_obj.transcript_with_ts = srt_text
+                video_obj.transcript_no_ts = "".join(t.get("text", "") for t in parsed if t.get("text"))
+
+                # Ensure folder association
+                ensure_folder_association(session, video_id, channel_id, human_playlist_name)
+
+                new_count += 1
                 processed_count += 1
-                continue
 
-            # Download transcript via yt-dlp wrapper (more reliable)
-            parsed = get_transcript_for_video(video_id)
+                # Update progress
+                status_dict["processed"] = processed_count
 
-            if not parsed:
-                status_dict["errors"].append(f"Failed to get transcript for {video_id} ({video_title[:30]}...)")
+                logger.info(f"[{processed_count}/{total_videos}] Downloaded: {video_title[:50]}...")
+            except Exception as e:
+                import traceback
+                logger.error(f"Error processing video {video_id}: {e} - {traceback.format_exc()}")
+                status_dict["errors"].append(f"{video_id}: {e}")
                 processed_count += 1
-                continue
-
-            # Save video record
-            video_obj = Video(
-                video_id=video_id,
-                title=video_title,
-                transcript_with_ts=None,
-                transcript_no_ts=None,
-            )
-            session.add(video_obj)
-            session.flush()
-
-            # Save transcript
-            srt_lines = []
-            for t in parsed:
-                txt = t.get("text", "")
-                if txt:
-                    srt_lines.append("[%.1fs] " % t["start"] + txt)
-            srt_text = "\n".join(srt_lines)
-            video_obj.transcript_with_ts = srt_text
-            video_obj.transcript_no_ts = "".join(t.get("text", "") for t in parsed if t.get("text"))
-
-            # Ensure folder association
-            ensure_folder_association(session, video_id, channel_id, human_playlist_name)
-
-            new_count += 1
-            processed_count += 1
-
-            # Update progress
-            status_dict["processed"] = processed_count
-
-            logger.info(f"[{processed_count}/{total_videos}] Downloaded: {video_title[:50]}...")
 
         session.commit()
 
@@ -109,9 +123,10 @@ def download_channel_transcripts(channel_url, status_dict):
             session.commit()
 
     except Exception as e:
+        import traceback
         session.rollback()
         status_dict["errors"].append(str(e))
-        logger.error(f"Error downloading channel: {e}")
+        logger.error(f"Error downloading channel: {e} - {traceback.format_exc()}")
     finally:
         session.close()
 
@@ -165,6 +180,8 @@ def get_channel_and_videos(channel_url):
     entries = data.get("entries", [])
     videos = []
     for entry in entries:
+        if entry is None:
+            continue
         vid_id = entry.get("video_id") or entry.get("id")
         vid_title = entry.get("title", "Untitled")
         upload_date = entry.get("upload_date", "UnknownDate")

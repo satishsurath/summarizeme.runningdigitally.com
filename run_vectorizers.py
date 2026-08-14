@@ -17,6 +17,9 @@ def build_embedding_func(use_vllm):
         embed_api_key = os.getenv("VLLM_EMBED_API_KEY", "")
         embed_url = f"http://{embed_host}:{embed_port}/v1"
         embed_model = "nemo-nomic-embed-text-v1.5"
+# NOTE: PGAI embeds the API key in the vectorizer definition SQL.
+        # This is stored in the pgai_vectorizer table in Postgres.
+        # Protect the database from unauthorized access.
         return f"ai.embedding_openai('{embed_model}', 768, api_key => '{embed_api_key}', base_url => '{embed_url}')"
     else:
         ollama_host = os.getenv("REMOTE_OLLAMA_HOST", "localhost")

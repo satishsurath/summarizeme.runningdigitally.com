@@ -37,12 +37,9 @@ services:
       FLASK_ENV: development
       DEV_AUTH_ENABLED: "true"
       # Remote vLLM endpoints (production backend)
-      VLLM_EMBED_HOST: 192.168.50.9
-      VLLM_EMBED_PORT: "8001"
-      VLLM_EMBED_API_KEY: 11f9c5bce6d2ab58d28e7787b4fe6bcb68868d89aebe5025958b6e7ad109c209
-      VLLM_GEN_HOST: 192.168.50.9
-      VLLM_GEN_PORT: "8000"
-      VLLM_GEN_API_KEY: 875571fb3a3eee6c53af8ab909b75a5f9176cf80db45f3bbcec2cdf69c6ed27d
+      # API keys are sourced from .env file — never commit literal values.
+      VLLM_EMBED_API_KEY: ${VLLM_EMBED_API_KEY}
+      VLLM_GEN_API_KEY: ${VLLM_GEN_API_KEY}
     depends_on:
       db:
         condition: service_healthy

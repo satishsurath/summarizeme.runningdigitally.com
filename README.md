@@ -4,14 +4,30 @@ Below is a revised README with improved formatting, including instructions to in
 
 summarizeme.runningdigitally.com is a Python Flask application that downloads transcripts from a YouTube channel (or a single video within a channel) and provides multiple ways to summarize and chat with the content:
 
-- Summaries
-- Uses Ollama (LLaMA-based local text generation).
-- Summaries are stored as SummariesV2 in a Postgres database for each video.
-- Chat
-- Allows you to query either an entire channel or a single video using vector-embedded data.
-- Employs Ollama for embeddings (via nomic-embed-text) and generation.
+- **Summaries** — Uses vLLM (or Ollama as fallback) for local text generation. Summaries are stored as `SummariesV2` in a Postgres database for each video.
+- **Chat** — Allows you to query either an entire channel or a single video using vector-embedded data. Employs vLLM for embeddings (via `nemo-nomic-embed-text-v1.5`) and generation.
 
 This provides a convenient way to explore long-form YouTube content. You can rename or delete channels, filter videos, and handle everything via a user-friendly web interface.
+
+## Key Updates in This Version
+
+1. **Database Integration**
+   - Moved from file-based metadata to Postgres for videos, summaries, and channel-folder associations (via SQLAlchemy).
+   - Video transcripts, summarizations, and channel info can now be queried, renamed, or deleted using REST endpoints.
+2. **New Summaries (v2)**
+   - Four different summary fields per video: `concise_summary`, `key_topics`, `important_takeaways`, and `comprehensive_notes`.
+   - Built with chunking logic so each video's transcript is broken into manageable sections for LLM summarization.
+3. **Channel & Video Chat**
+   - Ability to chat across an entire channel (aggregating relevant chunks from multiple videos).
+   - Ability to chat with a single video and retrieve context from selected summary fields (or from the raw transcript embedding).
+   - Uses vector embeddings with vLLM (or Ollama fallback) and a Postgres-based vector store (via PGAI).
+4. **Channel Management**
+   - Rename a channel folder from the database.
+   - Delete a channel folder (and optionally remove all videos that are no longer referenced by any folder).
+5. **vLLM Backend**
+   - Primary backend: two separate vLLM instances — one for embeddings (`nemo-nomic-embed-text-v1.5`), one for generation (e.g., Qwen3.6-35B-A3B-NVFP4).
+   - Fallback: Ollama if no vLLM endpoints are configured.
+   - Model discovery via `/api/ollama/models` (compatible naming for both vLLM and Ollama).
 
 ## Key Updates in This Version
 
@@ -24,13 +40,14 @@ This provides a convenient way to explore long-form YouTube content. You can ren
 3.	Channel & Video Chat
 	- Ability to chat across an entire channel (aggregating relevant chunks from multiple videos).
 	- Ability to chat with a single video and retrieve context from selected summary fields (or from the raw transcript embedding).
-	- Uses vector embeddings with Ollama (nomic-embed-text) and a Postgres-based vector store (via PGVector or PGAI).
+	- Uses vector embeddings with vLLM (nemo-nomic-embed-text-v1.5) and a Postgres-based vector store (via PGAI).
 4.	Channel Management
 	- Rename a channel folder from the database.
 	- Delete a channel folder (and optionally remove all videos that are no longer referenced by any folder).
-5.	Ollama Remote Integration
-	- Support for a remote Ollama instance (via a configurable host in .env).
-	- New endpoint to list available Ollama models: /api/ollama/models.
+5. **vLLM Backend**
+	- Two separate vLLM instances: one for embeddings (`nemo-nomic-embed-text-v1.5`), one for generation (e.g., Qwen3.6-35B-A3B-NVFP4).
+	- Fallback to Ollama if no vLLM endpoints are configured.
+	- Model discovery endpoint: `/api/ollama/models` (works with both vLLM and Ollama).
 
 ## Features Overview
 
@@ -71,7 +88,6 @@ my_youtube_transcript_summarizer/
 ├─ youtube_utils.py     # Functions for downloading YouTube transcripts
 ├─ summarizer_v2.py     # Chunking, prompting, generation logic
 ├─ openai_summarizer.py # (Older summarizer approach, optional)
-├─ ollama_summarizer.py # (Older summarizer approach, optional)
 ├─ requirements.txt
 ├─ .env.example         # Example environment file
 ├─ README.md
@@ -83,7 +99,6 @@ my_youtube_transcript_summarizer/
 │        ├─ summaries_openai/
 │        │  └─ *.md
 │        └─ summaries_ollama/
-│           └─ *.md
 ├─ templates/
 │  ├─ layout.html
 │  ├─ index.html
@@ -128,7 +143,7 @@ my_youtube_transcript_summarizer/
 1.	Python 3.10+
 2.	Virtualenv or pipenv (recommended)
 3.	PostgreSQL 14+ (for storing transcripts, summaries, and embeddings)
-4.	Ollama (LLaMA-based local text generation + embedding)
+4. **Ollama Fallback** (only used when VLLM_*_HOST is unset)
 - Must be installed locally or running on a remote machine.
 - The .env file must point to the correct host/URL for your Ollama instance.
 5.	(Optional) If you still plan to use OpenAI for summarization, you’ll need an OpenAI API Key.
@@ -163,10 +178,20 @@ Copy the provided example:
 ```
 cp .env.example .env
 ```
-Then edit .env to set:
+Then edit `.env` to set:
 ```
-DATABASE_URL=postgresql://user:pass@localhost:5432/mydb
-REMOTE_OLLAMA_HOST=localhost         # or your server IP
+DATABASE_URL=postgresql://summarizeme:summarizeme_pass@localhost:5432/summarizeme
+
+# vLLM (primary)
+VLLM_EMBED_HOST=localhost
+VLLM_EMBED_PORT=8001
+VLLM_EMBED_API_KEY=<your-embed-key>
+VLLM_GEN_HOST=localhost
+VLLM_GEN_PORT=8000
+VLLM_GEN_API_KEY=<your-gen-key>
+
+# Ollama fallback (omit VLLM_* to use instead)
+# REMOTE_OLLAMA_HOST=localhost
 ```
 Make sure you have a running Postgres instance that matches the DATABASE_URL.
 
@@ -255,22 +280,35 @@ Send a POST request to /api/channels/delete with JSON:
 ```
 This removes the channel folder references; any videos no longer referenced by any folder are also deleted.
 
-6. Checking Ollama Models
+6. Checking Models (via /api/ollama/models)
 
-A GET request to /api/ollama/models returns the list of available models from your remote Ollama instance.
+A GET request to `/api/ollama/models` returns the list of available models. This endpoint name is legacy-compatible — it works with both vLLM and Ollama. When vLLM is configured, it queries both the embedding and generation endpoints and merges the results.
 
 ## Environment Variables
 
 | Variable              | Description                                                    | Example                                 |
 |-----------------------|----------------------------------------------------------------|-----------------------------------------|
-| OPENAI_API_KEY        | Your OpenAI API Key (only if using ChatGPT/OpenAI)             | sk-abc123...                            |
-| DATABASE_URL          | Postgres connection URL                                        | postgresql://user:pass@localhost:5432/mydb |
-| REMOTE_OLLAMA_HOST    | Hostname/IP for your remote Ollama service (default port 11434) | localhost or remote.server.com         |
+| Variable               | Description                                                  | Example                                   |
+|------------------------|--------------------------------------------------------------|-------------------------------------------|
+| DATABASE_URL           | Postgres connection URL                                      | postgresql://summarizeme:pass@localhost:5432/summarizeme |
+| DEV_AUTH_ENABLED       | Enable local dev auth (true = dev@localhost gets admin role) | true                                      |
+| VLLM_EMBED_HOST        | Host for vLLM embedding instance                             | localhost or 192.168.50.9                 |
+| VLLM_EMBED_PORT        | Port for vLLM embedding instance                             | 8001                                      |
+| VLLM_EMBED_API_KEY     | API key for vLLM embedding endpoint                          | sk-...                                    |
+| VLLM_GEN_HOST          | Host for vLLM generation instance                            | localhost or 192.168.50.9                 |
+| VLLM_GEN_PORT          | Port for vLLM generation instance                            | 8000                                      |
+| VLLM_GEN_API_KEY       | API key for vLLM generation endpoint                         | sk-...                                    |
+| REMOTE_OLLAMA_HOST     | Fallback: Ollama host (used only when VLLM_*_HOST is unset)  | localhost                                 |
 
 
 ## Troubleshooting / Tips
-1.	Ensure Ollama Is Running
-	- By default, Ollama listens on port 11434. If running remotely, confirm your firewall allows incoming requests or use SSH tunneling.
+1. **Ensure vLLM Instances Are Running**
+	- Embedding instance: port 8001 (nemo-nomic-embed-text-v1.5)
+	- Generation instance: port 8000 (Qwen3.6-35B-A3B-NVFP4)
+	- If using remote vLLM, confirm your firewall allows requests on these ports.
+2. **Ensure Ollama Is Running (Fallback)**
+	- Only needed if vLLM is not configured. By default, Ollama listens on port 11434.
+	- Confirm your firewall allows incoming requests or use SSH tunneling.
 2.	Check DB Connectivity
 	- Make sure DATABASE_URL is correct and the tables exist.
 	- If you run into table-not-found errors, verify that init_db.py was executed successfully.
