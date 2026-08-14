@@ -171,9 +171,7 @@ def ollama_generate_chunk(model_name, prompt, client=None):
         if not _HAS_OPENAI:
             print("[ERROR] openai SDK not installed")
             return ""
-        chat_client = client or _OpenAI(
-                base_url=llm_url, api_key=_VLLM_GEN_API_KEY
-            )
+        chat_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
         response = chat_client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
