@@ -3,9 +3,9 @@ import json
 import logging
 import os
 import subprocess
+import urllib.request
 from datetime import datetime
 from urllib.parse import quote
-import urllib.request
 
 from pytube import YouTube
 from sqlalchemy import create_engine
@@ -55,7 +55,7 @@ def download_channel_transcripts(channel_url, status_dict):
             try:
                 video_id = video.get("video_id")
                 video_title = video.get("title") or "Untitled (no title)"
-                logger.info(f"[{i+1}/{len(videos)}] Processing: {video_id} - {video_title[:30]}")
+                logger.info(f"[{i + 1}/{len(videos)}] Processing: {video_id} - {video_title[:30]}")
                 if not video_id:
                     logger.error(f"Skipping video with None video_id: {video}")
                     status_dict["errors"].append(f"None video_id at index {i}")
@@ -94,7 +94,7 @@ def download_channel_transcripts(channel_url, status_dict):
                 for t in parsed:
                     txt = t.get("text", "")
                     if txt:
-                        srt_lines.append("[%.1fs] " % t["start"] + txt)
+                        srt_lines.append(f"[{t['start']:.1f}s] " + txt)
                 srt_text = "\n".join(srt_lines)
                 video_obj.transcript_with_ts = srt_text
                 video_obj.transcript_no_ts = "".join(t.get("text", "") for t in parsed if t.get("text"))
@@ -111,6 +111,7 @@ def download_channel_transcripts(channel_url, status_dict):
                 logger.info(f"[{processed_count}/{total_videos}] Downloaded: {video_title[:50]}...")
             except Exception as e:
                 import traceback
+
                 logger.error(f"Error processing video {video_id}: {e} - {traceback.format_exc()}")
                 status_dict["errors"].append(f"{video_id}: {e}")
                 processed_count += 1
@@ -124,6 +125,7 @@ def download_channel_transcripts(channel_url, status_dict):
 
     except Exception as e:
         import traceback
+
         session.rollback()
         status_dict["errors"].append(str(e))
         logger.error(f"Error downloading channel: {e} - {traceback.format_exc()}")
@@ -280,7 +282,7 @@ def srt_time_to_seconds(t_str):
     else:
         time_part = t_str
         ms = 0
-    
+
     parts = time_part.split(":")
     h, m, s = int(parts[0]), int(parts[1]), float(parts[2])
     return h * 3600 + m * 60 + s + ms / 1000.0
@@ -313,7 +315,9 @@ def list_downloaded_videos(channel_id):
         if not folder:
             return []
 
-        video_ids = [row[0] for row in session.query(VideoFolder.video_id).filter_by(original_playlist_id=channel_id).all()]
+        video_ids = [
+            row[0] for row in session.query(VideoFolder.video_id).filter_by(original_playlist_id=channel_id).all()
+        ]
         videos = session.query(Video).filter(Video.video_id.in_(video_ids)).all()
         return [
             {
