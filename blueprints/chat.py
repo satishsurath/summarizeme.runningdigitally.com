@@ -12,8 +12,8 @@ from app_config import (
     chat_video_sql_templates,
     logger,
     md_safe,
-    ollama_embed_chunk,
-    ollama_generate_chunk,
+    vllm_embed_chunk,
+    vllm_generate_chunk,
 )
 from db.models import Video, VideoFolder
 
@@ -68,7 +68,7 @@ def api_chat_channel(channel_name):
 
     session = SessionLocal()
     try:
-        user_query_emb = ollama_embed_chunk(user_query, model_name="nemo-nomic-embed-text-v1.5")
+        user_query_emb = vllm_embed_chunk(user_query, model_name="nemo-nomic-embed-text-v1.5")
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
@@ -108,7 +108,7 @@ User Query:
 Please provide a concise answer:
 """
 
-            final_answer = ollama_generate_chunk(model_name, prompt_str)
+            final_answer = vllm_generate_chunk(model_name, prompt_str)
 
             if not final_answer:
                 final_answer = "No answer was returned by the model."
@@ -204,7 +204,7 @@ def api_chat_video(video_id):
 
     session = SessionLocal()
     try:
-        user_query_emb = ollama_embed_chunk(user_query, model_name="nemo-nomic-embed-text-v1.5")
+        user_query_emb = vllm_embed_chunk(user_query, model_name="nemo-nomic-embed-text-v1.5")
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
@@ -220,7 +220,7 @@ def api_chat_video(video_id):
 
             gen_model = model_name if model_name != "phi4:latest" else "meta-llama/Llama-3.1-8B-Instruct"
             prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
-            final_answer = ollama_generate_chunk(gen_model, prompt_text)
+            final_answer = vllm_generate_chunk(gen_model, prompt_text)
 
             if not final_answer:
                 final_answer = "No answer was returned by the model."

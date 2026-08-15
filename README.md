@@ -2,9 +2,9 @@
 
 SummarizeMe is a Flask application for downloading YouTube transcripts, producing
 stored summaries, and chatting with individual videos or channel collections. It
-uses PostgreSQL for application data and can use separate OpenAI-compatible vLLM
-endpoints for embeddings and generation. Ollama is the fallback when vLLM is not
-configured.
+uses PostgreSQL for application data and OpenAI-compatible vLLM endpoints for
+embeddings and generation. Endpoints are configured via `VLLM_*_HOST` environment
+variables.
 
 ## Repository map
 
@@ -26,7 +26,7 @@ Repository-level assistant instructions are in [AGENTS.md](AGENTS.md).
 - PostgreSQL for runtime use; pgvector/PGAI are required only for the vectorized
   chat path.
 - Docker and Docker Compose for the containerized development stack.
-- A vLLM-compatible embedding and generation service, or an Ollama service.
+- A vLLM-compatible embedding and generation service.
 
 Copy the committed example rather than creating a secret-bearing file from memory:
 

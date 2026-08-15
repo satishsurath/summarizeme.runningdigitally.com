@@ -115,12 +115,11 @@ def reader_user(with_db):
 
 
 @pytest.fixture
-def mock_ollama_response():
-    """Mock Ollama responses for summarization and chat."""
+def mock_vllm_response():
+    """Mock vLLM responses for summarization and chat."""
     with (
         patch.dict(os.environ, {"VLLM_GEN_HOST": "localhost"}),
-        patch("summarizer_v2._USE_VLLM", True),
-        patch("summarizer_v2._get_llm_url", return_value="http://localhost:8000"),
+        patch("summarizer_v2.VLLM_GEN_URL", "http://localhost:8000"),
         patch("summarizer_v2._OpenAI") as mock_openai_cls,
     ):
         mock_client = MagicMock()
