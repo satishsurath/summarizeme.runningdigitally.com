@@ -57,3 +57,4 @@ yt-dlp==2024.12.6
 PyJWT
 cryptography
 openai>=1.0.0
+alembic>=1.13

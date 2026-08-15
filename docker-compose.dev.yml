@@ -79,12 +79,12 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     ports:
-      - "5000:5000"
+      - "5001:5000"
     environment:
       DATABASE_URL: postgresql://summarizeme:summarizeme_pass@db:5432/summarizeme
-      VLLM_EMBED_HOST: vllm-embed
-      VLLM_EMBED_PORT: "8000"
-      VLLM_GEN_HOST: vllm-gen
+      VLLM_EMBED_HOST: 192.168.50.9
+      VLLM_EMBED_PORT: "8001"
+      VLLM_GEN_HOST: 192.168.50.9
       VLLM_GEN_PORT: "8000"
       REDIS_URL: redis://redis:6379/0
       FLASK_ENV: development

@@ -101,14 +101,13 @@ document.addEventListener("DOMContentLoaded", () => {
     summaryStatus.className = "mt-2 text-sm text-blue-500 dark:text-blue-400";
 
     try {
-      const chosenModel = methodSelect.value;
       const res = await fetch("/api/summarize_v2", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           channel_name: channel_name,
           video_ids: selected,
-          model: chosenModel
+          model: DEFAULT_MODEL
         })
       });
 
@@ -238,30 +237,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  async function loadOllamaModels() {
-    try {
-      const resp = await fetch("/api/ollama/models");
-      const data = await resp.json();
-      methodSelect.innerHTML = ""; // clear existing
-
-      (data.data || []).forEach(m => {
-        const opt = document.createElement("option");
-        opt.value = m.id;
-        opt.textContent = m.id;
-        methodSelect.appendChild(opt);
-      });
-    } catch (err) {
-      console.error("Failed to load Ollama models:", err);
-      methodSelect.innerHTML = `
-        <option value="phi4:latest" class="text-gray-900 dark:text-gray-100">
-          phi4:latest
-        </option>
-      `;
-    }
-  }
+  // Use single vLLM model
+  const DEFAULT_MODEL = "nemo-qwen3.6-35b-a3b-nvfp4";
 
   // Initialize
   updateSortIndicators();
-  loadOllamaModels();
   loadVideos();
 });
