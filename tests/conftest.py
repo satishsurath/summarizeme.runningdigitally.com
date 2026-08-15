@@ -1,7 +1,9 @@
 """
 Shared fixtures for all tests.
 
-Uses a temporary file-based SQLite database to avoid in-memory DB locking.
+Uses a temporary file-based SQLite database by default. Set TEST_DATABASE_URL to
+run the same suite against a disposable PostgreSQL database; this deliberately
+does not reuse a developer's ordinary DATABASE_URL.
 """
 
 import os
@@ -10,9 +12,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Create a temp file DB that persists for the test session
-_tempdb = tempfile.NamedTemporaryFile(suffix=".db", delete=False, dir="/tmp")  # noqa: SIM115
-os.environ["DATABASE_URL"] = f"sqlite:///{_tempdb.name}"
+# Create a temp file DB that persists for the test session unless CI explicitly
+# supplies a disposable PostgreSQL database.
+_configured_test_database_url = os.environ.get("TEST_DATABASE_URL")
+_tempdb = None
+if _configured_test_database_url:
+    os.environ["DATABASE_URL"] = _configured_test_database_url
+else:
+    _tempdb = tempfile.NamedTemporaryFile(suffix=".db", delete=False, dir="/tmp")  # noqa: SIM115
+    os.environ["DATABASE_URL"] = f"sqlite:///{_tempdb.name}"
 
 # Import after env is set — SQLAlchemy will use SQLite
 from app import app  # noqa: E402
@@ -34,8 +42,9 @@ def _test_db():
     engine.dispose()
     import contextlib
 
-    with contextlib.suppress(Exception):
-        os.unlink(_tempdb.name)
+    if _tempdb is not None:
+        with contextlib.suppress(Exception):
+            os.unlink(_tempdb.name)
 
 
 @pytest.fixture
