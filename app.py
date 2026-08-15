@@ -18,7 +18,7 @@ from auth_utils import get_current_user
 
 # If you store your models and sync code in separate modules:
 from db.models import SummariesV2, User, Video, VideoFolder
-from summarizer_v2 import build_prompts_for_chunk, chunk_transcript, ollama_generate_chunk
+from summarizer_v2 import build_prompts_for_chunk, chunk_transcript, ollama_embed_chunk, ollama_generate_chunk
 from youtube_utils import download_channel_transcripts
 
 
@@ -854,19 +854,8 @@ def api_chat_channel(channel_name):
 
     session = SessionLocal()
     try:
-        # 2) Embed the user query with the chosen model
-        sql_embed = text("""
-            SELECT ai.openai_embed(
-                :model_name,
-                :query_text,
-                :llm_url
-            ) AS user_query_emb
-        """)
-
-        user_query_emb = session.execute(
-            sql_embed,
-            {"model_name": "nomic-ai/nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
-        ).scalar()
+        # 2) Embed the user query with the chosen model via vLLM directly
+        user_query_emb = ollama_embed_chunk(user_query, model_name="nomic-ai/nomic-embed-text-v1.5")
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
@@ -894,15 +883,7 @@ def api_chat_channel(channel_name):
 
             context_for_generation = "\n\n".join(context_pieces)
 
-            # 4) Generate final answer (embedding is done; now we do text generation)
-            sql_generate = text("""
-                SELECT ai.ollama_generate(
-                    :model_name,
-                    :prompt,
-                    :llm_url
-                ) AS answer
-            """)
-
+            # 4) Generate final answer via vLLM directly
             prompt_str = f"""
 Context:
 {context_for_generation}
@@ -913,19 +894,10 @@ User Query:
 Please provide a concise answer:
 """
 
-            result_json = session.execute(
-                sql_generate, {"model_name": model_name, "prompt": prompt_str, "llm_url": _LLM_GEN_URL}
-            ).scalar()
+            final_answer = ollama_generate_chunk(model_name, prompt_str)
 
-            if not result_json:
+            if not final_answer:
                 final_answer = "No answer was returned by the model."
-            else:
-                # PGAI may return the text directly as a string or as a dict
-                final_answer = (
-                    result_json.get("response", "[No response in JSON]")
-                    if isinstance(result_json, dict)
-                    else str(result_json)
-                )
 
             # same logic to append the used_videos_html
             if unique_videos:
@@ -1035,18 +1007,8 @@ def api_chat_video(video_id):
     session = SessionLocal()
     try:
         # 3) Embed the user_query
-        sql_embed = text("""
-            SELECT ai.openai_embed(
-                :model_name,
-                :query_text,
-                :llm_url
-            ) AS user_query_emb
-        """)
-
-        user_query_emb = session.execute(
-            sql_embed,
-            {"model_name": "nomic-ai/nomic-embed-text-v1.5", "query_text": user_query, "llm_url": _LLM_EMBED_URL},
-        ).scalar()
+        # 3) Embed the user_query via vLLM directly
+        user_query_emb = ollama_embed_chunk(user_query, model_name="nomic-ai/nomic-embed-text-v1.5")
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
@@ -1062,35 +1024,13 @@ def api_chat_video(video_id):
             context_pieces = [f"Chunk: {row[0]}" for row in chunk_rows]
             context_for_generation = "\n\n".join(context_pieces)
 
-            # 5) Generate final answer via PGAI ollama_generate
-            sql_generate = text("""
-                SELECT ai.openai_generate(
-                    :model_name,
-                    :prompt,
-                    :llm_url
-                ) AS answer
-            """)
-
+            # 5) Generate final answer via vLLM directly
+            gen_model = model_name if model_name != "phi4:latest" else "meta-llama/Llama-3.1-8B-Instruct"
             prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
-            result_json = session.execute(
-                sql_generate,
-                {
-                    "model_name": model_name if model_name != "phi4:latest" else "meta-llama/Llama-3.1-8B-Instruct",
-                    "prompt": prompt_text,
-                    "llm_url": _LLM_GEN_URL,
-                },
-            ).scalar()
+            final_answer = ollama_generate_chunk(gen_model, prompt_text)
 
-            if not result_json:
+            if not final_answer:
                 final_answer = "No answer was returned by the model."
-            else:
-                # PGAI may return the text directly as a string or as a dict
-                final_answer = (
-                    result_json.get("response", "[No response in JSON]")
-                    if isinstance(result_json, dict)
-                    else str(result_json)
-                )
-
     except Exception as e:
         logger.exception("Error while handling chat-video")
         final_answer = f"Error: {e}"

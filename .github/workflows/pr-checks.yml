@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: timescale/timescaledb-ha:pg17
         env:
           POSTGRES_USER: summarizeme
           POSTGRES_PASSWORD: summarizeme_pass
@@ -64,13 +64,13 @@ jobs:
 
       - name: Run unit tests
         env:
-          DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
+          TEST_DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
           REMOTE_OLLAMA_HOST: localhost
         run: pytest tests/unit/ -v --cov=app --cov=summarizer_v2 --cov=youtube_utils --cov=db --cov-report=xml
 
       - name: Run integration tests
         env:
-          DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
+          TEST_DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
           REMOTE_OLLAMA_HOST: localhost
           DEV_AUTH_ENABLED: "true"
         run: pytest tests/integration/ -v --cov-report=xml
@@ -81,6 +81,49 @@ jobs:
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
+
+  pgai-tests:
+    name: PGAI capability (non-blocking)
+    needs: tests
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      postgres:
+        image: timescale/timescaledb-ha:pg17
+        env:
+          POSTGRES_USER: summarizeme
+          POSTGRES_PASSWORD: summarizeme_pass
+          POSTGRES_DB: summarizeme_test
+        ports:
+          - 5432
+        options: >-
+          --health-cmd="pg_isready -U summarizeme -d summarizeme_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install psycopg2-binary
+
+      - name: Run PGAI tests (non-blocking)
+        continue-on-error: true
+        env:
+          PGAI_DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
+          VLLM_EMBED_URL: "http://localhost:8001"
+          DATABASE_URL: sqlite:///tmp/pgai_test.db
+        run: pytest tests/integration/test_pgai.py -v --cov=app --cov-report=xml
 
   docker-build:
     name: Docker Build
@@ -95,6 +138,5 @@ jobs:
       - name: Validate Dockerfile
         run: docker build -t summarizeme:test .
 
-      - name: Check container can start
-        run: docker run --rm -e DATABASE_URL=postgres://ignored -e REMOTE_OLLAMA_HOST=ignored -e DEV_AUTH_ENABLED=true summarizeme:test python -c "import app; print('OK')"
-        continue-on-error: true
+      - name: Check container import
+        run: docker run --rm -e DATABASE_URL=postgresql://ignored -e REMOTE_OLLAMA_HOST=ignored -e DEV_AUTH_ENABLED=true summarizeme:test python -c "import app; print('OK')"
