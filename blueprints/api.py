@@ -1,4 +1,5 @@
 """API blueprint — channel, video, summarize, channels CRUD, ollama, all-tasks."""
+
 import datetime
 import os
 import re
@@ -227,9 +228,7 @@ def api_list_channels():
     session = SessionLocal()
     try:
         folders = session.query(VideoFolder.folder_name, VideoFolder.original_playlist_id).distinct().all()
-        folder_list = [
-            {"folder_name": f.folder_name, "original_playlist_id": f.original_playlist_id} for f in folders
-        ]
+        folder_list = [{"folder_name": f.folder_name, "original_playlist_id": f.original_playlist_id} for f in folders]
     finally:
         session.close()
 
