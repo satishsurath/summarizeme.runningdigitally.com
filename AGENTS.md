@@ -77,6 +77,20 @@ Every PR must pass a GitHub Copilot code review before merging. The cycle is:
 5. **Never merge** a PR that still has open Copilot findings. The "all clear"
    signal is the gate — without it, the PR is not ready.
 
+## Post-Merge Branch Workflow
+
+After a PR is merged to `main`, always switch the local branch back to `main` and
+fast-forward it:
+
+```bash
+git checkout main
+git pull origin main
+```
+
+This ensures the local `main` is in sync with the remote and prevents stale
+state when starting new work. Never continue development on the merged branch
+after the merge — create a new branch from the updated `main`.
+
 ## Codebase Memory
 
 Use the graph for initial architecture orientation, caller/callee candidates, and
