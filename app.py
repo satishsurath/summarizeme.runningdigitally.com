@@ -138,6 +138,7 @@ def status_page():
     """
     return render_template("status.html")
 
+
 @app.route("/health")
 def health_check():
     """Simple health check endpoint for Docker HEALTHCHECK."""
