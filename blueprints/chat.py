@@ -62,7 +62,7 @@ def api_chat_channel(channel_name):
         "concise_summary": "public.summaries_v2_concise_summary_embedding",
         "key_topics": "public.summaries_v2_key_topics_embedding",
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
-        "transcript": "public.videos_embedding",
+        "transcript": "public.videos_transcript_no_ts_embedding",
     }
     selected_view = embeddings_view_map.get(data_type, embeddings_view_map["comprehensive_notes"])
 
@@ -197,7 +197,7 @@ def api_chat_video(video_id):
         "concise_summary": "public.summaries_v2_concise_summary_embedding",
         "key_topics": "public.summaries_v2_key_topics_embedding",
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
-        "transcript": "public.videos_embedding",
+        "transcript": "public.videos_transcript_no_ts_embedding",
     }
 
     selected_table = embeddings_table_map.get(data_type, embeddings_table_map["comprehensive_notes"])
