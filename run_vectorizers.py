@@ -1,19 +1,12 @@
 # run_vectorizers.py
 # Plain Python vectorization using vLLM directly - no PGAI ai extension required
 
+import httpx
 import os
 import re
 
 import psycopg2
 from dotenv import load_dotenv
-
-# Import vLLM embedding function
-try:
-    from openai import OpenAI as _OpenAI
-
-    _HAS_OPENAI = True
-except ImportError:
-    _HAS_OPENAI = False
 
 
 def split_into_chunks(text, chunk_size=1000, overlap=200):
@@ -49,8 +42,8 @@ def split_into_chunks(text, chunk_size=1000, overlap=200):
     return [c for c in chunks if c.strip()]
 
 
-def get_embedding(text, model_name="nomic-ai/nomic-embed-text-v1.5"):
-    """Get embedding from vLLM directly."""
+def get_embedding(text, model_name="nemo-nomic-embed-text-v1.5"):
+    """Get embedding from vLLM directly using httpx."""
     embed_host = os.getenv("VLLM_EMBED_HOST", "localhost")
     embed_port = os.getenv("VLLM_EMBED_PORT", "8001")
 
@@ -59,16 +52,25 @@ def get_embedding(text, model_name="nomic-ai/nomic-embed-text-v1.5"):
 
     url = f"http://{embed_host}:{embed_port}"
 
-    if not _HAS_OPENAI:
-        print("[ERROR] openai SDK not installed")
+    try:
+        resp = httpx.post(
+            f"{url}/v1/embeddings",
+            json={
+                "model": model_name,
+                "input": [text],
+            },
+            headers={"Content-Type": "application/json", "Authorization": "Bearer local-noauth"},
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            result = resp.json()
+            return result.get("data", [{}])[0].get("embedding")
+        else:
+            print(f"[ERROR] vLLM embed HTTP error: {resp.status_code} {resp.text[:200]}")
+            return None
+    except Exception as e:
+        print(f"[ERROR] vLLM embed error: {e}")
         return None
-
-    client = _OpenAI(base_url=url, api_key="not-needed")
-    response = client.embeddings.create(
-        model=model_name,
-        input=[text],
-    )
-    return response.data[0].embedding if response.data else None
 
 
 def ensure_pgvector(cur, conn):
@@ -80,10 +82,13 @@ def ensure_pgvector(cur, conn):
 
 def ensure_destination_table(cur, conn, table_name):
     """Create the destination embeddings table if it doesn't exist."""
+    # Extract table name without schema prefix for index naming
+    table_only = table_name.split(".")[-1] if "." in table_name else table_name
+    index_name = f"{table_only}_embedding_idx"
     cur.execute(f"""
         CREATE TABLE IF NOT EXISTS {table_name} (
             id BIGSERIAL PRIMARY KEY,
-            source_id BIGINT NOT NULL,
+            source_id VARCHAR(100) NOT NULL,
             source_table VARCHAR(100) NOT NULL,
             source_column VARCHAR(100) NOT NULL,
             chunk_order INTEGER NOT NULL,
@@ -93,7 +98,7 @@ def ensure_destination_table(cur, conn, table_name):
     """)
     # Create index for vector similarity search
     cur.execute(f"""
-        CREATE INDEX IF NOT EXISTS {table_name}_embedding_idx
+        CREATE INDEX IF NOT EXISTS {index_name}
         ON {table_name} USING ivfflat (embedding vector_cosine_ops)
         WITH (lists = 100);
     """)
@@ -136,7 +141,7 @@ def process_column(
     # Get all rows that need processing
     cur.execute(f"""
         SELECT {id_column}, {column_name} FROM {table_name}
-        WHERE {id_column} NOT IN (
+        WHERE {id_column}::VARCHAR NOT IN (
             SELECT DISTINCT source_id FROM {dest_table}
         )
         LIMIT 100;
@@ -206,7 +211,7 @@ def main():
             conn,
             table_name="public.videos",
             column_name="transcript_no_ts",
-            id_column="id",
+            id_column="video_id",
             destination_prefix="",
             chunk_size=1000,
             overlap=200,
