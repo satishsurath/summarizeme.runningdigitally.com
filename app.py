@@ -3,9 +3,6 @@
 from flask import Flask
 
 from app_config import (  # noqa: F401  # test-patched names
-    _LLM_EMBED_URL,
-    _LLM_GEN_URL,
-    OLLAMA_URL,
     VLLM_EMBED_URL,
     VLLM_GEN_URL,
     SessionLocal,
@@ -15,8 +12,8 @@ from app_config import (  # noqa: F401  # test-patched names
     get_current_user,
     logger,
     md_safe,
-    ollama_embed_chunk,
-    ollama_generate_chunk,
+    vllm_embed_chunk,
+    vllm_generate_chunk,
 )
 
 app = Flask(__name__)

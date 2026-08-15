@@ -1,7 +1,6 @@
-"""API blueprint — channel, video, summarize, channels CRUD, ollama, all-tasks."""
+"""API blueprint — channel, video, summarize, channels CRUD, vLLM, all-tasks."""
 
 import datetime
-import os
 import re
 import threading
 
@@ -17,9 +16,9 @@ from app_config import (
     chunk_transcript,
     download_channel_transcripts,
     download_statuses,
-    ollama_generate_chunk,
     require_role,
     summarize_v2_statuses,
+    vllm_generate_chunk,
 )
 from app_config import (
     shared_logger as logger,
@@ -178,10 +177,10 @@ def api_summarize_v2():
 
                 for chunk_str in chunked_texts:
                     prompts = build_prompts_for_chunk(chunk_str)
-                    all_concise.append(ollama_generate_chunk(model_name, prompts["concise"]))
-                    all_topics.append(ollama_generate_chunk(model_name, prompts["key_topics"]))
-                    all_takeaways.append(ollama_generate_chunk(model_name, prompts["takeaways"]))
-                    all_comprehensive.append(ollama_generate_chunk(model_name, prompts["comprehensive"]))
+                    all_concise.append(vllm_generate_chunk(model_name, prompts["concise"]))
+                    all_topics.append(vllm_generate_chunk(model_name, prompts["key_topics"]))
+                    all_takeaways.append(vllm_generate_chunk(model_name, prompts["takeaways"]))
+                    all_comprehensive.append(vllm_generate_chunk(model_name, prompts["comprehensive"]))
 
                 new_summary = SummariesV2(
                     video_id=vid,
@@ -394,31 +393,17 @@ def api_all_tasks():
     return jsonify(all_tasks)
 
 
-@api_bp.route("/ollama/models", methods=["GET"])
-def api_ollama_models():
-    """Returns model lists from both vLLM instances (if configured).
-    Falls back to Ollama if no vLLM is configured.
-    """
-    if os.getenv("VLLM_GEN_HOST"):
-        models = []
-        for url in [_LLM_EMBED_URL, _LLM_GEN_URL]:
-            try:
-                resp = requests.get(f"{url}/v1/models", timeout=10)
-                resp.raise_for_status()
-                data = resp.json()
-                if "data" in data:
-                    models.extend(data["data"])
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"Failed to list models from {url}: {e}")
-        return jsonify({"models": models})
-    else:
-        ollama_host = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
-        url = f"http://{ollama_host}:11434/v1/models"
+@api_bp.route("/vllm/models", methods=["GET"])
+def api_vllm_models():
+    """Returns model lists from both vLLM instances (if configured)."""
+    models = []
+    for url in [_LLM_EMBED_URL, _LLM_GEN_URL]:
         try:
-            resp = requests.get(url, timeout=10)
+            resp = requests.get(f"{url}/v1/models", timeout=10)
             resp.raise_for_status()
             data = resp.json()
-            return jsonify(data)
+            if "data" in data:
+                models.extend(data["data"])
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to list Ollama models: {e}")
-            return jsonify({"models": []}), 500
+            logger.warning(f"Failed to list models from {url}: {e}")
+    return jsonify({"models": models})

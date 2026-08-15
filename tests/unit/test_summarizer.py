@@ -1,4 +1,4 @@
-"""Tests for summarizer_v2.py — chunking, prompts, and Ollama generation."""
+"""Tests for summarizer_v2.py — chunking, prompts, and vLLM generation."""
 
 from summarizer_v2 import build_prompts_for_chunk, chunk_transcript, split_into_sentences
 
@@ -120,14 +120,14 @@ class TestBuildPromptsForChunk:
         assert "150 words" in prompts["concise"]
 
 
-class TestOllamaGenerateChunk:
+class TestVllmGenerateChunk:
     """Tests for the LLM chunk generation function."""
 
-    def test_returns_response_from_backend(self, mock_ollama_response):
+    def test_returns_response_from_backend(self, mock_vllm_response):
         """With a mock LLM, should return the mocked response."""
-        from summarizer_v2 import ollama_generate_chunk
+        from summarizer_v2 import vllm_generate_chunk
 
-        # mock_ollama_response patches _get_llm_url and openai.OpenAI
+        # mock_vllm_response patches openai.OpenAI
         # The mock OpenAI client returns "Mock response"
-        result = ollama_generate_chunk("test-model", "test prompt")
+        result = vllm_generate_chunk("test-model", "test prompt")
         assert "Mock response" in result

@@ -23,8 +23,8 @@ from db.models import SummariesV2, User, Video, VideoFolder  # noqa: F401  # re-
 from summarizer_v2 import (  # noqa: F401  # re-exported for blueprints
     build_prompts_for_chunk,
     chunk_transcript,
-    ollama_embed_chunk,
-    ollama_generate_chunk,
+    vllm_embed_chunk,
+    vllm_generate_chunk,
 )
 from youtube_utils import download_channel_transcripts  # noqa: F401  # re-exported for blueprints
 
@@ -74,21 +74,11 @@ _VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
 _VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
 VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
 
-# Ollama fallback (legacy)
-_REMOTE_OLLAMA_HOST = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
-OLLAMA_URL = f"http://{_REMOTE_OLLAMA_HOST}:11434"
-
-# Use vLLM if configured, otherwise fall back to Ollama
-if os.getenv("VLLM_GEN_HOST"):
-    _LLM_GEN_URL = VLLM_GEN_URL
-    _LLM_EMBED_URL = VLLM_EMBED_URL
-    _logger.info("[Embed LLM] Using vLLM: %s", _LLM_EMBED_URL)
-    _logger.info("[Gen LLM]   Using vLLM: %s", _LLM_GEN_URL)
-else:
-    _LLM_GEN_URL = OLLAMA_URL
-    _LLM_EMBED_URL = OLLAMA_URL
-    _logger.info("[Embed LLM] Using Ollama: %s", _LLM_EMBED_URL)
-    _logger.info("[Gen LLM]   Using Ollama: %s", _LLM_GEN_URL)
+# vLLM is the only LLM backend
+_LLM_GEN_URL = VLLM_GEN_URL
+_LLM_EMBED_URL = VLLM_EMBED_URL
+_logger.info("[Embed LLM] Using vLLM: %s", _LLM_EMBED_URL)
+_logger.info("[Gen LLM]   Using vLLM: %s", _LLM_GEN_URL)
 
 
 # In-memory storage for statuses (for demo).

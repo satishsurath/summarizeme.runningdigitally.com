@@ -166,7 +166,7 @@ class TestGetCurrentUser:
 class TestRoleDecorator:
     """Tests for the require_role decorator."""
 
-    def test_admin_access_allowed(self, client, with_db, mock_ollama_response):
+    def test_admin_access_allowed(self, client, with_db, mock_vllm_response):
         """Admin user should access admin endpoints."""
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
@@ -184,13 +184,13 @@ class TestRoleDecorator:
             resp = client.get("/admin-settings")
             assert resp.status_code == 200
 
-    def test_member_access_denied_to_admin_only(self, client, with_db, mock_ollama_response):
+    def test_member_access_denied_to_admin_only(self, client, with_db, mock_vllm_response):
         """Member user should get 403 on admin-only endpoints."""
         with patch("app.get_current_user", return_value=("member@test.com", "member")):
             resp = client.get("/admin-settings")
             assert resp.status_code == 403
 
-    def test_unauthenticated_gets_403(self, client, with_db, mock_ollama_response):
+    def test_unauthenticated_gets_403(self, client, with_db, mock_vllm_response):
         """Unauthenticated requests should get 403."""
         with patch("app.get_current_user", return_value=(None, None)):
             resp = client.get("/admin-settings")
