@@ -33,8 +33,13 @@ def md_safe(s):
     return markdown.markdown(str(_html_escape(s))) if s else ""
 
 
-DB_URL = os.environ["DATABASE_URL"]
-# engine = create_engine(DB_URL, echo=False)
+load_dotenv()
+
+DB_URL = os.getenv("DATABASE_URL")
+if not DB_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Create a .env file or export DATABASE_URL before starting the app."
+    )
 engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)  # 30 minutes
 SessionLocal = sessionmaker(bind=engine)
 
