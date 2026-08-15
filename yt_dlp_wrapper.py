@@ -30,8 +30,7 @@ class YtDlpHandler(BaseHTTPRequestHandler):
 
         try:
             result = subprocess.run(
-                [YT_DLP_PATH, "--flat-playlist", "--dump-single-json", url],
-                capture_output=True, text=True, timeout=60
+                [YT_DLP_PATH, "--flat-playlist", "--dump-single-json", url], capture_output=True, text=True, timeout=60
             )
             if result.returncode != 0:
                 self.send_response(500)
