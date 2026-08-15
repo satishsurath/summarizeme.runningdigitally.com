@@ -37,9 +37,7 @@ load_dotenv()
 
 DB_URL = os.getenv("DATABASE_URL")
 if not DB_URL:
-    raise RuntimeError(
-        "DATABASE_URL is not set. Create a .env file or export DATABASE_URL before starting the app."
-    )
+    raise RuntimeError("DATABASE_URL is not set. Create a .env file or export DATABASE_URL before starting the app.")
 engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)  # 30 minutes
 SessionLocal = sessionmaker(bind=engine)
 
