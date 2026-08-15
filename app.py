@@ -43,9 +43,17 @@ SessionLocal = sessionmaker(bind=engine)
 
 app = Flask(__name__)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure structured logging
+formatter = logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    logger.addHandler(handler)
 
 # Read the env file
 load_dotenv()
@@ -68,13 +76,14 @@ OLLAMA_URL = f"http://{_REMOTE_OLLAMA_HOST}:11434"
 if os.getenv("VLLM_GEN_HOST"):
     _LLM_GEN_URL = VLLM_GEN_URL
     _LLM_EMBED_URL = VLLM_EMBED_URL
-    print(f"[Embed LLM] Using vLLM: {_LLM_EMBED_URL}")
-    print(f"[Gen LLM]   Using vLLM: {_LLM_GEN_URL}")
+    logger.info("[Embed LLM] Using vLLM: %s", _LLM_EMBED_URL)
+    logger.info("[Gen LLM]   Using vLLM: %s", _LLM_GEN_URL)
 else:
     _LLM_GEN_URL = OLLAMA_URL
     _LLM_EMBED_URL = OLLAMA_URL
-    print(f"[Embed LLM] Using Ollama: {_LLM_EMBED_URL}")
-    print(f"[Gen LLM]   Using Ollama: {_LLM_GEN_URL}")
+    logger.info("[Embed LLM] Using Ollama: %s", _LLM_EMBED_URL)
+    logger.info("[Gen LLM]   Using Ollama: %s", _LLM_GEN_URL)
+
 
 # In-memory storage for statuses (for demo).
 # For production, use a database or a caching layer (Redis).
