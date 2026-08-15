@@ -113,8 +113,14 @@ def upsert_embedding(cur, conn, table_name, source_id, source_table, source_colu
 
 
 def process_column(
-    cur, conn, table_name, column_name, id_column="id",
-    destination_prefix="", chunk_size=1000, overlap=200,
+    cur,
+    conn,
+    table_name,
+    column_name,
+    id_column="id",
+    destination_prefix="",
+    chunk_size=1000,
+    overlap=200,
 ):
     """Process a column and generate embeddings."""
     print(f"[INFO] Processing {table_name}.{column_name}...")
@@ -163,12 +169,7 @@ def process_column(
             video_id = ctx_row[0] if ctx_row else ""
             video_title = ctx_row[1] if ctx_row else ""
             col_label = column_name.replace("_", " ").title()
-            fmt_template = (
-                f"Video ID: {video_id}\n"
-                f"Video Title: {video_title}\n"
-                f"{col_label} chunk:\n"
-                f"{{chunk}}"
-            )
+            fmt_template = f"Video ID: {video_id}\nVideo Title: {video_title}\n{col_label} chunk:\n{{chunk}}"
 
         for order, chunk_text in enumerate(chunks):
             formatted = fmt_template.format(chunk=chunk_text)
@@ -201,7 +202,8 @@ def main():
 
         # Process videos.transcript_no_ts
         process_column(
-            cur, conn,
+            cur,
+            conn,
             table_name="public.videos",
             column_name="transcript_no_ts",
             id_column="id",
@@ -213,7 +215,8 @@ def main():
         # Process summaries_v2 columns
         for col in ["concise_summary", "key_topics", "important_takeaways", "comprehensive_notes"]:
             process_column(
-                cur, conn,
+                cur,
+                conn,
                 table_name="public.summaries_v2",
                 column_name=col,
                 id_column="id",
