@@ -1,0 +1,19 @@
+# Top-level dependencies for SummarizeMe
+Flask>=2.3.2
+Flask-Limiter>=2.9.2
+gunicorn>=20.1.0
+SQLAlchemy>=2.0.37
+alembic>=1.13
+psycopg2-binary>=2.9.10
+python-dotenv>=1.0.1
+pytube>=15.0.0
+yt-dlp>=2024.12.6
+ollama>=0.4.5
+openai>=1.0.0
+httpx>=0.27.2
+tiktoken>=0.8.0
+Markdown>=3.7
+youtube-transcript-api>=0.6.3
+PyJWT>=2.0.0
+cryptography>=41.0.0
+rich>=12.6.0
