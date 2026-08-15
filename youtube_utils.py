@@ -182,7 +182,7 @@ def get_channel_and_videos(channel_url):
     entries = data.get("entries", [])
 
     # Handle single video URL (no entries array, metadata at top level)
-    if not entries and data.get("id") and "youtube.com/watch" in channel_url:
+    if not entries and data.get("id") and ("youtube.com/watch" in channel_url or "youtu.be/" in channel_url):
         vid_id = data.get("video_id") or data.get("id")
         vid_title = data.get("title", "Untitled")
         upload_date = data.get("upload_date", "UnknownDate")
