@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 
@@ -5,7 +6,14 @@ import httpx
 from dotenv import load_dotenv
 
 try:
-    from openai import OpenAI as _OpenAI
+    from openai import (
+        APIConnectionError,
+        APIError,
+        APIStatusError,
+    )
+    from openai import (
+        OpenAI as _OpenAI,
+    )
 
     _HAS_OPENAI = True
 except ImportError:
@@ -22,6 +30,8 @@ _VLLM_GEN_API_KEY = os.getenv("VLLM_GEN_API_KEY", "not-needed")
 # Build URLs
 VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
 VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}"
+
+logger = logging.getLogger(__name__)
 
 
 def split_into_sentences(text):
@@ -154,8 +164,10 @@ def vllm_generate_chunk(model_name, prompt, client=None):
     """
     llm_url = VLLM_GEN_URL
 
+    from app_config import shared_logger
+
     if not _HAS_OPENAI:
-        print("[ERROR] openai SDK not installed")
+        shared_logger.error("openai SDK not installed")
         return ""
     try:
         chat_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
@@ -166,24 +178,35 @@ def vllm_generate_chunk(model_name, prompt, client=None):
         )
         msg = response.choices[0].message if response.choices else None
         data = msg.content if msg and msg.content else (msg.reasoning if msg and msg.reasoning else "")
-    except Exception:
+    except (APIError, APIStatusError, APIConnectionError):
         # Fallback to httpx for vLLM compatibility
-        resp = httpx.post(
-            f"{llm_url}/v1/chat/completions",
-            json={
-                "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 4096,
-            },
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {_VLLM_GEN_API_KEY}"},
-            timeout=120,
-        )
-        if resp.status_code == 200:
-            result = resp.json()
-            msg = result.get("choices", [{}])[0].get("message", {})
-            data = msg.get("content") or msg.get("reasoning") or ""
-        else:
-            print(f"[ERROR] vLLM HTTP error: {resp.status_code} {resp.text[:200]}")
+        try:
+            resp = httpx.post(
+                f"{llm_url}/v1/chat/completions",
+                json={
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 4096,
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {_VLLM_GEN_API_KEY}",
+                },
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                msg = result.get("choices", [{}])[0].get("message", {})
+                data = msg.get("content") or msg.get("reasoning") or ""
+            else:
+                shared_logger.error(
+                    "vLLM HTTP error: %s %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                return ""
+        except httpx.HTTPError:
+            logger.exception("vLLM httpx fallback failed")
             return ""
 
     return data.strip() if data else ""
@@ -198,9 +221,10 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
         model_name: Embedding model identifier (default: nomic embed)
     """
     llm_url = VLLM_EMBED_URL
+    from app_config import shared_logger
 
     if not _HAS_OPENAI:
-        print("[ERROR] openai SDK not installed")
+        shared_logger.error("openai SDK not installed")
         return None
     try:
         embed_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
@@ -209,22 +233,33 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
             input=[text_input],
         )
         data = response.data[0].embedding if response.data else None
-    except Exception:
+    except (APIError, APIStatusError, APIConnectionError):
         # Fallback to httpx for vLLM compatibility
-        resp = httpx.post(
-            f"{llm_url}/v1/embeddings",
-            json={
-                "model": model_name,
-                "input": [text_input],
-            },
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {_VLLM_GEN_API_KEY}"},
-            timeout=30,
-        )
-        if resp.status_code == 200:
-            result = resp.json()
-            data = result.get("data", [{}])[0].get("embedding")
-        else:
-            print(f"[ERROR] vLLM embed HTTP error: {resp.status_code} {resp.text[:200]}")
+        try:
+            resp = httpx.post(
+                f"{llm_url}/v1/embeddings",
+                json={
+                    "model": model_name,
+                    "input": [text_input],
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {_VLLM_GEN_API_KEY}",
+                },
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                data = result.get("data", [{}])[0].get("embedding")
+            else:
+                shared_logger.error(
+                    "vLLM embed HTTP error: %s %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                return None
+        except httpx.HTTPError:
+            logger.exception("vLLM embed httpx fallback failed")
             return None
 
     return data
