@@ -70,7 +70,7 @@
         <nav class="container mx-auto px-4 py-4">
             <div class="flex items-center justify-between">
                 <!-- Brand -->
-                <a href="{{ url_for('index') }}" class="text-2xl font-bold text-gray-800 dark:text-white hover:text-primary">
+                <a href="{{ url_for('main.index') }}" class="text-2xl font-bold text-gray-800 dark:text-white hover:text-primary">
                     Summarizeme
                 </a>
                 
@@ -104,9 +104,9 @@
 
                 <!-- Desktop menu -->
                 <div class="hidden md:flex items-center space-x-8">
-                    <a href="{{ url_for('index') }}" class="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary">Home</a>
-                    <a href="{{ url_for('status_page') }}" class="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary">Check Status</a>
-                    <a href="{{ url_for('admin_settings') }}" class="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary">Admin</a>
+                    <a href="{{ url_for('main.index') }}" class="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary">Home</a>
+                    <a href="{{ url_for('main.status_page') }}" class="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary">Check Status</a>
+                    <a href="{{ url_for('admin.admin_settings') }}" class="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary">Admin</a>
                     
                     <!-- Dark mode toggle for desktop -->
                     <button id="darkModeToggle" 
@@ -131,9 +131,9 @@
 
             <!-- Mobile menu -->
             <div id="mobile-menu" class="hidden md:hidden mt-4 space-y-4">
-                <a href="{{ url_for('index') }}" class="block text-gray-600 dark:text-gray-300">Home</a>
-                <a href="{{ url_for('status_page') }}" class="block text-gray-600 dark:text-gray-300">Check Status</a>
-                <a href="{{ url_for('admin_settings') }}" class="block text-gray-600 dark:text-gray-300">Admin</a>
+                <a href="{{ url_for('main.index') }}" class="block text-gray-600 dark:text-gray-300">Home</a>
+                <a href="{{ url_for('main.status_page') }}" class="block text-gray-600 dark:text-gray-300">Check Status</a>
+                <a href="{{ url_for('admin.admin_settings') }}" class="block text-gray-600 dark:text-gray-300">Admin</a>
             </div>
         </nav>
     </header>
