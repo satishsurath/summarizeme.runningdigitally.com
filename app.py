@@ -138,6 +138,11 @@ def status_page():
     """
     return render_template("status.html")
 
+@app.route("/health")
+def health_check():
+    """Simple health check endpoint for Docker HEALTHCHECK."""
+    return jsonify({"status": "healthy"}), 200
+
 
 @app.route("/videos/<channel_name>")
 def videos_page(channel_name):
