@@ -1,10 +1,10 @@
 # run_vectorizers.py
 # Plain Python vectorization using vLLM directly - no PGAI ai extension required
 
-import httpx
 import os
 import re
 
+import httpx
 import psycopg2
 from dotenv import load_dotenv
 

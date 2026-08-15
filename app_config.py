@@ -182,7 +182,6 @@ CHAT_CHANNEL_SQL_TEMPLATES = {
         WHERE vf.folder_name = :chan
         ORDER BY similarity DESC LIMIT 5
     """,
-
 }
 
 CHAT_VIDEO_SQL_TEMPLATES = {
