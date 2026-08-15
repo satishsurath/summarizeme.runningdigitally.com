@@ -215,6 +215,6 @@ def ollama_embed_chunk(text_input, client=None, model_name="nomic-ai/nomic-embed
             return None
         embed_client = client or _OllamaClient(host=llm_url)
         response = embed_client.embed(model=model_name, input=text_input)
-        data = response.embedding if hasattr(response, 'embedding') else None
+        data = response.embedding if hasattr(response, "embedding") else None
 
     return data

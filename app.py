@@ -18,7 +18,7 @@ from auth_utils import get_current_user
 
 # If you store your models and sync code in separate modules:
 from db.models import SummariesV2, User, Video, VideoFolder
-from summarizer_v2 import build_prompts_for_chunk, chunk_transcript, ollama_generate_chunk, ollama_embed_chunk
+from summarizer_v2 import build_prompts_for_chunk, chunk_transcript, ollama_embed_chunk, ollama_generate_chunk
 from youtube_utils import download_channel_transcripts
 
 
