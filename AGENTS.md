@@ -56,6 +56,27 @@ requires it:
 Report skipped tests, warnings, non-blocking CI jobs, mocks, and unavailable
 services as limitations. They are not successful validation.
 
+## Pull Request Code Review Cycle
+
+Every PR must pass a GitHub Copilot code review before merging. The cycle is:
+
+1. **Trigger review.** Comment `@copilot review` on the PR draft. This initiates the
+   GitHub Copilot code review process.
+2. **Wait for results.** Monitor the PR for Copilot's review comment — either
+   **findings** (issues to fix) or an **"all clear"** (no issues found).
+3. **If findings:**
+   - Read Copilot's review comments carefully.
+   - Fix each finding in the branch.
+   - Commit and push the fixes.
+   - Complete any required PR review cycles (approve/review as appropriate).
+   - Comment `@copilot review` **again** to re-trigger the review.
+   - Repeat steps 2–3 until you receive an "all clear".
+4. **If all clear:**
+   - The PR is ready to merge.
+   - Squash-merge to main with a descriptive subject line.
+5. **Never merge** a PR that still has open Copilot findings. The "all clear"
+   signal is the gate — without it, the PR is not ready.
+
 ## Codebase Memory
 
 Use the graph for initial architecture orientation, caller/callee candidates, and
