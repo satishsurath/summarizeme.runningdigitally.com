@@ -66,7 +66,7 @@ class TestVideosPage:
         session.close()
 
         resp = client.get(f"/videos/{channel_name}")
-        resp  # Page rendered successfully
+        assert resp.status_code == 200  # Page rendered successfully
 
 
 class TestApiChannelStart:
@@ -89,9 +89,10 @@ class TestApiChannelStart:
 
     def test_channel_start_returns_task_id(self, client, with_db, mock_ollama_response):
         """Channel start should return a task ID."""
-        with patch("app.get_current_user", return_value=("admin@test.com", "admin")), patch(
-            "app.download_channel_transcripts"
-        ) as mock_download:
+        with (
+            patch("app.get_current_user", return_value=("admin@test.com", "admin")),
+            patch("app.download_channel_transcripts") as mock_download,
+        ):
             mock_download.return_value = None
             resp = client.post(
                 "/api/channel/start",
@@ -114,8 +115,9 @@ class TestApiChannelStatus:
 
     def test_channel_status_valid_task(self, client, mock_ollama_response):
         """Status endpoint should return 200 for existing task."""
-        with patch("app.get_current_user", return_value=("admin@test.com", "admin")), patch(
-            "app.download_channel_transcripts"
+        with (
+            patch("app.get_current_user", return_value=("admin@test.com", "admin")),
+            patch("app.download_channel_transcripts"),
         ):
             # First initiate a task
             client.post(
