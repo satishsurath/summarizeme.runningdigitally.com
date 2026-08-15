@@ -134,50 +134,55 @@ def require_role(allowed_roles):
 
 CHAT_CHANNEL_SQL_TEMPLATES = {
     "public.summaries_v2_comprehensive_notes_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+        SELECT ev.content, s.video_id, v.title AS video_title,
                1 - (ev.embedding <=> :q_emb) AS similarity
         FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
+        JOIN summaries_v2 s ON ev.source_id = s.id::VARCHAR
+        JOIN video_folders vf ON s.video_id = vf.video_id
+        JOIN videos v        ON s.video_id = v.video_id
         WHERE vf.folder_name = :chan
         ORDER BY similarity DESC LIMIT 5
     """,
     "public.summaries_v2_concise_summary_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+        SELECT ev.content, s.video_id, v.title AS video_title,
                1 - (ev.embedding <=> :q_emb) AS similarity
         FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
+        JOIN summaries_v2 s ON ev.source_id = s.id::VARCHAR
+        JOIN video_folders vf ON s.video_id = vf.video_id
+        JOIN videos v        ON s.video_id = v.video_id
         WHERE vf.folder_name = :chan
         ORDER BY similarity DESC LIMIT 5
     """,
     "public.summaries_v2_key_topics_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+        SELECT ev.content, s.video_id, v.title AS video_title,
                1 - (ev.embedding <=> :q_emb) AS similarity
         FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
+        JOIN summaries_v2 s ON ev.source_id = s.id::VARCHAR
+        JOIN video_folders vf ON s.video_id = vf.video_id
+        JOIN videos v        ON s.video_id = v.video_id
         WHERE vf.folder_name = :chan
         ORDER BY similarity DESC LIMIT 5
     """,
     "public.summaries_v2_important_takeaways_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+        SELECT ev.content, s.video_id, v.title AS video_title,
                1 - (ev.embedding <=> :q_emb) AS similarity
         FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
+        JOIN summaries_v2 s ON ev.source_id = s.id::VARCHAR
+        JOIN video_folders vf ON s.video_id = vf.video_id
+        JOIN videos v        ON s.video_id = v.video_id
         WHERE vf.folder_name = :chan
         ORDER BY similarity DESC LIMIT 5
     """,
     "public.videos_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
+        SELECT ev.content, ev.source_id AS video_id, v.title AS video_title,
                1 - (ev.embedding <=> :q_emb) AS similarity
         FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
+        JOIN video_folders vf ON ev.source_id = vf.video_id
+        JOIN videos v        ON ev.source_id = v.video_id
         WHERE vf.folder_name = :chan
         ORDER BY similarity DESC LIMIT 5
     """,
+
 }
 
 CHAT_VIDEO_SQL_TEMPLATES = {
