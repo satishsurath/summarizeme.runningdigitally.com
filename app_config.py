@@ -173,7 +173,7 @@ CHAT_CHANNEL_SQL_TEMPLATES = {
         WHERE vf.folder_name = :chan
         ORDER BY similarity DESC LIMIT 5
     """,
-    "public.videos_embedding": """
+    "public.videos_transcript_no_ts_embedding": """
         SELECT ev.content, ev.source_id AS video_id, v.title AS video_title,
                1 - (ev.embedding <=> :q_emb) AS similarity
         FROM %(view)s ev
@@ -201,7 +201,7 @@ CHAT_VIDEO_SQL_TEMPLATES = {
         SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
         FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
     """,
-    "public.videos_embedding": """
+    "public.videos_transcript_no_ts_embedding": """
         SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
         FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
     """,
