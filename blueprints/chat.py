@@ -73,7 +73,10 @@ def api_chat_channel(channel_name):
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
         sql_top_chunks = text(chat_channel_sql_templates[selected_view] % {"view": selected_view})
-        chunk_rows = session.execute(sql_top_chunks, {"q_emb": user_query_emb, "chan": channel_name}).fetchall()
+        # Build embedding array literal for PostgreSQL vector type (bypasses parameter binding)
+        emb_literal = "ARRAY[" + ",".join(str(x) for x in user_query_emb) + "]::vector"
+        sql_with_emb = sql_top_chunks.compile().string.replace(":q_emb", emb_literal)
+        chunk_rows = session.execute(text(sql_with_emb), {"chan": channel_name}).fetchall()
         if not chunk_rows:
             final_answer = "No relevant content found for this channel and data type."
         else:
