@@ -21,9 +21,7 @@ CLOUDFLARE_AUD_TAG = os.getenv("CLOUDFLARE_AUD_TAG")
 
 DB_URL = os.getenv("DATABASE_URL")
 if not DB_URL:
-    raise RuntimeError(
-        "DATABASE_URL is not set. Create a .env file or export DATABASE_URL before starting auth_utils."
-    )
+    raise RuntimeError("DATABASE_URL is not set. Create a .env file or export DATABASE_URL before starting auth_utils.")
 engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)
 SessionLocal = sessionmaker(bind=engine)
 
