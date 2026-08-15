@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "mcpServers": {
+    "codebase-memory-pilot": {
+      "type": "stdio",
+      "command": "${HOME}/.local/share/rwm-codegraph-pilot/v0.9.0/codebase-memory-mcp",
+      "env": {
+        "CBM_ALLOWED_ROOT": "${PWD}",
+        "CBM_CACHE_DIR": "${HOME}/.local/state/summarizeme-codegraph/cache"
+      }
+    }
+  }
+}

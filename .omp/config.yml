@@ -1,0 +1,38 @@
+# Accuracy-first settings for sessions launched from this repository.
+enabledModels:
+  - nemo/nemo-qwen3.6-35b-a3b-nvfp4
+  - ollama/gpt-oss:120b
+
+modelRoles:
+  default: nemo/nemo-qwen3.6-35b-a3b-nvfp4:high
+  slow: nemo/nemo-qwen3.6-35b-a3b-nvfp4:high
+  plan: nemo/nemo-qwen3.6-35b-a3b-nvfp4:high
+  advisor: ollama/gpt-oss:120b
+
+# Qwen's documented precise-coding sampling profile. OMP currently applies these
+# sampling controls session-wide, so keep the advisor disabled by default.
+defaultThinkingLevel: high
+temperature: 0.6
+topP: 0.95
+topK: 20
+minP: 0.0
+presencePenalty: 0.0
+repetitionPenalty: 1.0
+
+advisor:
+  enabled: false
+
+lsp:
+  enabled: true
+  lazy: true
+  diagnosticsOnEdit: true
+  diagnosticsOnWrite: true
+
+read:
+  summarize:
+    enabled: false
+
+# Prefer repository instructions and current source while the documentation and
+# service-validation contracts are being repaired.
+memory:
+  backend: off
