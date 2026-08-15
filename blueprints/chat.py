@@ -46,9 +46,6 @@ def api_chat_channel(channel_name):
     data_type = data.get("data_type", "comprehensive_notes")
     model_name = data.get("model_name", "phi4:latest")
 
-    if model_name == "deepseek-r1:32b":
-        model_name = "gemma2:27b"
-
     if not user_query:
         return jsonify({"answer": "No query provided."}), 400
 
@@ -67,6 +64,8 @@ def api_chat_channel(channel_name):
     selected_view = embeddings_view_map.get(data_type, embeddings_view_map["comprehensive_notes"])
 
     session = SessionLocal()
+    final_answer = ""
+    used_videos_html = ""
     try:
         user_query_emb = vllm_embed_chunk(user_query, model_name="nemo-nomic-embed-text-v1.5")
 
@@ -74,15 +73,9 @@ def api_chat_channel(channel_name):
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
         sql_top_chunks = text(chat_channel_sql_templates[selected_view] % {"view": selected_view})
-        # Flatten embedding list for PostgreSQL array syntax
-        emb_str = "ARRAY[" + ",".join(str(x) for x in user_query_emb) + "]"
-        # Inject embedding array literal directly into SQL (bypasses parameter binding issues)
-        emb_literal = emb_str + "::vector"
-        sql_with_emb = sql_top_chunks.compile().string.replace(":q_emb", emb_literal)
-        chunk_rows = session.execute(text(sql_with_emb), {"chan": channel_name}).fetchall()
+        chunk_rows = session.execute(sql_top_chunks, {"q_emb": user_query_emb, "chan": channel_name}).fetchall()
         if not chunk_rows:
             final_answer = "No relevant content found for this channel and data type."
-            used_videos_html = ""
         else:
             context_pieces = []
             unique_videos = {}
@@ -186,7 +179,7 @@ def api_chat_video(video_id):
     data = request.json or {}
     user_query = data.get("query", "")
     data_type = data.get("data_type", "comprehensive_notes")
-    model_name = data.get("model_name", "phi4")
+    model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
     logger.info(
         f"Chat-video query for video_id={video_id}, user_query={user_query}, data_type={data_type}, model={model_name}"
@@ -218,9 +211,8 @@ def api_chat_video(video_id):
             context_pieces = [f"Chunk: {row[0]}" for row in chunk_rows]
             context_for_generation = "\n\n".join(context_pieces)
 
-            gen_model = model_name if model_name != "phi4:latest" else "meta-llama/Llama-3.1-8B-Instruct"
             prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
-            final_answer = vllm_generate_chunk(gen_model, prompt_text)
+            final_answer = vllm_generate_chunk(model_name, prompt_text)
 
             if not final_answer:
                 final_answer = "No answer was returned by the model."

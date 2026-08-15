@@ -127,8 +127,6 @@ class TestVllmModels:
         """Should return model list from vLLM."""
         resp = client.get("/api/vllm/models")
         assert resp.status_code == 200
-        # json.loads(resp.data)
-        # vLLM /v1/models returns {data: [...]} or {models: [...]}
 
 
 class TestAdminRoutes:

@@ -59,7 +59,10 @@ def get_embedding(text, model_name="nemo-nomic-embed-text-v1.5"):
                 "model": model_name,
                 "input": [text],
             },
-            headers={"Content-Type": "application/json", "Authorization": "Bearer local-noauth"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {os.getenv('VLLM_EMBED_API_KEY', 'local-noauth')}",
+            },
             timeout=30,
         )
         if resp.status_code == 200:
@@ -93,7 +96,8 @@ def ensure_destination_table(cur, conn, table_name):
             source_column VARCHAR(100) NOT NULL,
             chunk_order INTEGER NOT NULL,
             content TEXT NOT NULL,
-            embedding vector(768) NOT NULL
+            embedding vector(768) NOT NULL,
+            UNIQUE (source_id, source_table, source_column, chunk_order)
         );
     """)
     # Create index for vector similarity search
@@ -101,6 +105,11 @@ def ensure_destination_table(cur, conn, table_name):
         CREATE INDEX IF NOT EXISTS {index_name}
         ON {table_name} USING ivfflat (embedding vector_cosine_ops)
         WITH (lists = 100);
+    """)
+    # Create index on source_id for NOT IN subquery optimization
+    cur.execute(f"""
+        CREATE INDEX IF NOT EXISTS {table_only}_source_id_idx
+        ON {table_name} (source_id);
     """)
     conn.commit()
 
@@ -111,7 +120,7 @@ def upsert_embedding(cur, conn, table_name, source_id, source_table, source_colu
         f"""
         INSERT INTO {table_name} (source_id, source_table, source_column, chunk_order, content, embedding)
         VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (source_id, source_table, source_column, chunk_order) DO NOTHING
     """,
         (source_id, source_table, source_column, chunk_order, content, embedding),
     )

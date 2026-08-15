@@ -8,8 +8,8 @@ import requests
 from flask import Blueprint, jsonify, request
 
 from app_config import (
-    _LLM_EMBED_URL,
-    _LLM_GEN_URL,
+    VLLM_EMBED_URL,
+    VLLM_GEN_URL,
     SessionLocal,
     SQLAlchemyError,
     build_prompts_for_chunk,
@@ -127,7 +127,7 @@ def api_summarize_v2():
     data = request.get_json() or {}
     channel_name = data.get("channel_name", "").strip()
     video_ids = data.get("video_ids", [])
-    model_name = data.get("model", "phi4")
+    model_name = data.get("model", "nemo-qwen3.6-35b-a3b-nvfp4")
 
     if not channel_name or not video_ids:
         return jsonify({"status": "error", "message": "channel_id or video_ids missing"}), 400
@@ -294,9 +294,9 @@ def api_refresh_channel():
             )
             .first()
         )
-        print(f"folder_obj: {folder_obj}")
+        logger.debug(f"folder_obj: {folder_obj}")
         if not folder_obj:
-            print("Channel not found")
+            logger.warning("Channel not found")
             return jsonify({"status": "error", "message": "Channel not found"}), 404
 
         human_playlist_name = folder_obj.folder_name
@@ -397,7 +397,7 @@ def api_all_tasks():
 def api_vllm_models():
     """Returns model lists from both vLLM instances (if configured)."""
     models = []
-    for url in [_LLM_EMBED_URL, _LLM_GEN_URL]:
+    for url in [VLLM_EMBED_URL, VLLM_GEN_URL]:
         try:
             resp = requests.get(f"{url}/v1/models", timeout=10)
             resp.raise_for_status()
