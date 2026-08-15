@@ -73,7 +73,9 @@ def get_current_user():
             return (user_obj.email, user_obj.role)
         else:
             # Auto-provision new user with default=reader
-            new_user = User(email=email, role="reader")
+            # In dev mode, auto-give admin role
+            role = "admin" if os.getenv("DEV_AUTH_ENABLED") == "true" else "reader"
+            new_user = User(email=email, role=role)
             session.add(new_user)
             session.commit()
             return (new_user.email, new_user.role)

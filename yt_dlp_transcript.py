@@ -3,10 +3,16 @@
 
 import glob
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# Find yt-dlp in common locations
+YT_DLP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "yt-dlp")
+if not os.path.exists(YT_DLP_PATH):
+    YT_DLP_PATH = "yt-dlp"  # fallback to PATH
 
 
 class TranscriptHandler(BaseHTTPRequestHandler):
@@ -31,7 +37,7 @@ class TranscriptHandler(BaseHTTPRequestHandler):
         try:
             # Download auto-caption as SRT via yt-dlp
             cmd = [
-                "yt-dlp",
+                YT_DLP_PATH,
                 "--skip-download",
                 "--write-auto-subs",
                 "--sub-lang",

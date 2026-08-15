@@ -180,14 +180,22 @@ def get_channel_and_videos(channel_url):
 
     channel_id = data.get("id", "unknown_channel_id")
     entries = data.get("entries", [])
-    videos = []
-    for entry in entries:
-        if entry is None:
-            continue
-        vid_id = entry.get("video_id") or entry.get("id")
-        vid_title = entry.get("title", "Untitled")
-        upload_date = entry.get("upload_date", "UnknownDate")
-        videos.append({"video_id": vid_id, "title": vid_title, "upload_date": upload_date})
+
+    # Handle single video URL (no entries array, metadata at top level)
+    if not entries and data.get("id") and "youtube.com/watch" in channel_url:
+        vid_id = data.get("video_id") or data.get("id")
+        vid_title = data.get("title", "Untitled")
+        upload_date = data.get("upload_date", "UnknownDate")
+        videos = [{"video_id": vid_id, "title": vid_title, "upload_date": upload_date}]
+    else:
+        videos = []
+        for entry in entries:
+            if entry is None:
+                continue
+            vid_id = entry.get("video_id") or entry.get("id")
+            vid_title = entry.get("title", "Untitled")
+            upload_date = entry.get("upload_date", "UnknownDate")
+            videos.append({"video_id": vid_id, "title": vid_title, "upload_date": upload_date})
 
     logger.info(f"Found {len(videos)} videos for '{channel_id}' using {channel_url}")
     return channel_id, videos

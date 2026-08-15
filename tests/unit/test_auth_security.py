@@ -64,8 +64,8 @@ class TestSecurityHeaders:
         os.environ["DEV_AUTH_ENABLED"] = "true"
         try:
             with app.test_request_context():
-                # Dev mode auth returns dev@localhost which gets provisioned as reader
+                # Dev mode auth returns dev@localhost which gets provisioned as admin
                 _email, role = get_current_user()
-                assert role == "reader"
+                assert role == "admin"
         finally:
             os.environ.pop("DEV_AUTH_ENABLED", None)
