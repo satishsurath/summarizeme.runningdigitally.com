@@ -34,6 +34,7 @@ VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}"
 OLLAMA_URL = f"http://{_OLLAMA_HOST}:11434"
 LLM_BASE_URL = VLLM_GEN_URL if _USE_VLLM else OLLAMA_URL
 
+
 def _get_llm_url(for_embedding=False):
     if _USE_VLLM:
         return VLLM_EMBED_URL if for_embedding else VLLM_GEN_URL
