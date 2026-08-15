@@ -7,10 +7,12 @@ from datetime import datetime
 from functools import wraps
 
 import markdown
+import requests
 from dotenv import load_dotenv
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 from markupsafe import escape as _html_escape
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import text
 
@@ -486,7 +488,7 @@ def api_rename_channel():
 
         return jsonify({"status": "ok", "old_name": old_name, "new_name": safe_new_name})
 
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.error(f"Error renaming channel in DB: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -661,7 +663,7 @@ def api_ollama_models():
                 data = resp.json()
                 if "data" in data:
                     models.extend(data["data"])
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 logger.warning(f"Failed to list models from {url}: {e}")
         return jsonify({"models": models})
     else:
@@ -672,7 +674,7 @@ def api_ollama_models():
             resp.raise_for_status()
             data = resp.json()
             return jsonify(data)
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             logger.error(f"Failed to list Ollama models: {e}")
             return jsonify({"models": []}), 500
 
@@ -947,7 +949,7 @@ Please provide a concise answer:
             else:
                 used_videos_html = ""
 
-    except Exception as e:
+    except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
         logger.exception("Error during chat-channel flow:")
         return jsonify({"answer": f"Error: {e!s}"}), 500
     finally:
@@ -1049,7 +1051,7 @@ def api_chat_video(video_id):
 
             if not final_answer:
                 final_answer = "No answer was returned by the model."
-    except Exception as e:
+    except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
         logger.exception("Error while handling chat-video")
         final_answer = f"Error: {e}"
     finally:
