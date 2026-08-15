@@ -187,3 +187,34 @@ def ollama_generate_chunk(model_name, prompt, client=None):
         data = response.message.content or ""
 
     return data.strip() if data else ""
+
+
+def ollama_embed_chunk(text_input, client=None, model_name="nomic-ai/nomic-embed-text-v1.5"):
+    """
+    Generate embedding via embedding backend (vLLM or Ollama).
+    Args:
+        text_input: Single string to embed
+        client: Optional OpenAI client for dependency injection (testing)
+        model_name: Embedding model identifier (default: nomic embed)
+    """
+    llm_url = _get_llm_url()
+
+    if _USE_VLLM:
+        if not _HAS_OPENAI:
+            print("[ERROR] openai SDK not installed")
+            return None
+        embed_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
+        response = embed_client.embeddings.create(
+            model=model_name,
+            input=[text_input],
+        )
+        data = response.data[0].embedding if response.data else None
+    else:
+        if not _HAS_OLLAMA:
+            print("[ERROR] ollama SDK not installed")
+            return None
+        embed_client = client or _OllamaClient(host=llm_url)
+        response = embed_client.embed(model=model_name, input=text_input)
+        data = response.embedding if hasattr(response, 'embedding') else None
+
+    return data

@@ -90,9 +90,13 @@ class TestGetCurrentUser:
             patch("auth_utils.PyJWKClient") as mock_jwks,
         ):
             mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
-            mock_request.headers.get.side_effect = lambda key, default=None: {
+            mock_headers = MagicMock()
+            mock_headers.get.side_effect = lambda key, default=None: {
                 "Cf-Access-Jwt-Assertion": "fake_token",
             }.get(key, default)
+            mock_request.headers = mock_headers
+            mock_request.cookies = MagicMock()
+            mock_request.cookies.get.return_value = None
 
             email, role = get_current_user()
             assert email == "admin@test.com"
@@ -113,9 +117,13 @@ class TestGetCurrentUser:
             patch("auth_utils.PyJWKClient") as mock_jwks,
         ):
             mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
-            mock_request.headers.get.side_effect = lambda key, default=None: {
+            mock_headers = MagicMock()
+            mock_headers.get.side_effect = lambda key, default=None: {
                 "Cf-Access-Jwt-Assertion": "fake_token",
             }.get(key, default)
+            mock_request.headers = mock_headers
+            mock_request.cookies = MagicMock()
+            mock_request.cookies.get.return_value = None
 
             email, role = get_current_user()
             assert email == "newuser2@test.com"
@@ -136,9 +144,13 @@ class TestGetCurrentUser:
             patch("auth_utils.PyJWKClient") as mock_jwks,
         ):
             mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
-            mock_request.headers.get.side_effect = lambda key, default=None: {
+            mock_headers = MagicMock()
+            mock_headers.get.side_effect = lambda key, default=None: {
                 "Cf-Access-Jwt-Assertion": "fake_token",
             }.get(key, default)
+            mock_request.headers = mock_headers
+            mock_request.cookies = MagicMock()
+            mock_request.cookies.get.return_value = None
 
             get_current_user()
 

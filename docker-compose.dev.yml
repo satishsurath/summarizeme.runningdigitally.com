@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: timescale/timescaledb-ha:pg17
     environment:
       POSTGRES_USER: summarizeme
       POSTGRES_PASSWORD: summarizeme_pass
@@ -9,6 +9,7 @@ services:
       - "55432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U summarizeme -d summarizeme"]
       interval: 5s

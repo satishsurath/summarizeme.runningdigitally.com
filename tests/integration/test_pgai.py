@@ -45,7 +45,7 @@ def _get_pg_url():
 class TestPGAIExtension:
     """Verify the 'ai' extension is installed (if available)."""
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def pgai_conn(self):
         """Get a psycopg2 connection to the PGAI-enabled database."""
         pg_url = _get_pg_url()
@@ -76,7 +76,7 @@ class TestPGAIExtension:
 class TestPGAIEmbedding:
     """Test ai.openai_embed SQL function used by chat endpoints."""
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def pg_connection(self):
         pg_url = _get_pg_url()
         if not pg_url:
