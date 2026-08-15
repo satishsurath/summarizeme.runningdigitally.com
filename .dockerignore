@@ -1,18 +1,52 @@
-.git
+# Environment files
 .env
 .env.*
 !.env.example
-.venv
-.venv-*
+
+# Virtual environment
+.venv/
+venv/
+
+# Python cache
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Node modules (for yt-dlp wrapper if needed)
+node_modules/
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+
+# Tests
+tests/
 .pytest_cache/
-.ruff_cache/
-.mypy_cache/
 .coverage
-.coverage.*
-coverage.xml
 htmlcov/
-build/
-dist/
-.omp/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
