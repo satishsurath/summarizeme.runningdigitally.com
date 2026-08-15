@@ -68,7 +68,7 @@ def api_chat_channel(channel_name):
 
     session = SessionLocal()
     try:
-        user_query_emb = ollama_embed_chunk(user_query, model_name="nomic-ai/nomic-embed-text-v1.5")
+        user_query_emb = ollama_embed_chunk(user_query, model_name="nemo-nomic-embed-text-v1.5")
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
@@ -200,7 +200,7 @@ def api_chat_video(video_id):
 
     session = SessionLocal()
     try:
-        user_query_emb = ollama_embed_chunk(user_query, model_name="nomic-ai/nomic-embed-text-v1.5")
+        user_query_emb = ollama_embed_chunk(user_query, model_name="nemo-nomic-embed-text-v1.5")
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500

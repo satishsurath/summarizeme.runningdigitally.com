@@ -22,20 +22,22 @@ except ImportError:
 load_dotenv()
 # vLLM (OpenAI-compatible) or Ollama (backend-agnostic)
 _VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
+_VLLM_EMBED_HOST = os.getenv("VLLM_EMBED_HOST", "localhost")
+_VLLM_EMBED_PORT = os.getenv("VLLM_EMBED_PORT", "8001")
 _VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
 _VLLM_GEN_API_KEY = os.getenv("VLLM_GEN_API_KEY", "not-needed")
 _OLLAMA_HOST = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
 _USE_VLLM = os.getenv("VLLM_GEN_HOST") is not None
-
 # Build URLs
 VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
+VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}"
 OLLAMA_URL = f"http://{_OLLAMA_HOST}:11434"
 LLM_BASE_URL = VLLM_GEN_URL if _USE_VLLM else OLLAMA_URL
 
-
-# Get the correct base URL
-def _get_llm_url():
-    return VLLM_GEN_URL if _USE_VLLM else OLLAMA_URL
+def _get_llm_url(for_embedding=False):
+    if _USE_VLLM:
+        return VLLM_EMBED_URL if for_embedding else VLLM_GEN_URL
+    return OLLAMA_URL
 
 
 def split_into_sentences(text):
@@ -211,7 +213,7 @@ def ollama_generate_chunk(model_name, prompt, client=None):
     return data.strip() if data else ""
 
 
-def ollama_embed_chunk(text_input, client=None, model_name="nomic-ai/nomic-embed-text-v1.5"):
+def ollama_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-v1.5"):
     """
     Generate embedding via embedding backend (vLLM or Ollama).
     Args:
@@ -219,18 +221,36 @@ def ollama_embed_chunk(text_input, client=None, model_name="nomic-ai/nomic-embed
         client: Optional OpenAI client for dependency injection (testing)
         model_name: Embedding model identifier (default: nomic embed)
     """
-    llm_url = _get_llm_url()
+    llm_url = _get_llm_url(for_embedding=True)
 
     if _USE_VLLM:
         if not _HAS_OPENAI:
             print("[ERROR] openai SDK not installed")
             return None
-        embed_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
-        response = embed_client.embeddings.create(
-            model=model_name,
-            input=[text_input],
-        )
-        data = response.data[0].embedding if response.data else None
+        try:
+            embed_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
+            response = embed_client.embeddings.create(
+                model=model_name,
+                input=[text_input],
+            )
+            data = response.data[0].embedding if response.data else None
+        except Exception:
+            # Fallback to httpx for vLLM compatibility
+            resp = httpx.post(
+                f"{llm_url}/v1/embeddings",
+                json={
+                    "model": model_name,
+                    "input": [text_input],
+                },
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {_VLLM_GEN_API_KEY}"},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                data = result.get("data", [{}])[0].get("embedding")
+            else:
+                print(f"[ERROR] vLLM embed HTTP error: {resp.status_code} {resp.text[:200]}")
+                return None
     else:
         if not _HAS_OLLAMA:
             print("[ERROR] ollama SDK not installed")
