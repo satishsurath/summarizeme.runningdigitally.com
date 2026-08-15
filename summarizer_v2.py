@@ -1,6 +1,7 @@
 import os
 import re
 
+import httpx
 from dotenv import load_dotenv
 
 try:
@@ -171,13 +172,34 @@ def ollama_generate_chunk(model_name, prompt, client=None):
         if not _HAS_OPENAI:
             print("[ERROR] openai SDK not installed")
             return ""
-        chat_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
-        response = chat_client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=4096,
-        )
-        data = response.choices[0].message.content if response.choices else ""
+        try:
+            chat_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
+            response = chat_client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=4096,
+            )
+            msg = response.choices[0].message if response.choices else None
+            data = msg.content if msg and msg.content else (msg.reasoning if msg and msg.reasoning else "")
+        except Exception:
+            # Fallback to httpx for vLLM compatibility
+            resp = httpx.post(
+                f"{llm_url}/v1/chat/completions",
+                json={
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 4096,
+                },
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {_VLLM_GEN_API_KEY}"},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                msg = result.get("choices", [{}])[0].get("message", {})
+                data = msg.get("content") or msg.get("reasoning") or ""
+            else:
+                print(f"[ERROR] vLLM HTTP error: {resp.status_code} {resp.text[:200]}")
+                return ""
     else:
         if not _HAS_OLLAMA:
             print("[ERROR] ollama SDK not installed")

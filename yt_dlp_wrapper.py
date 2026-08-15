@@ -2,9 +2,15 @@
 """Simple HTTP wrapper for yt-dlp --flat-playlist --dump-single-json."""
 
 import json
+import os
 import subprocess
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# Find yt-dlp in common locations
+YT_DLP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "yt-dlp")
+if not os.path.exists(YT_DLP_PATH):
+    YT_DLP_PATH = "yt-dlp"  # fallback to PATH
 
 
 class YtDlpHandler(BaseHTTPRequestHandler):
@@ -24,7 +30,7 @@ class YtDlpHandler(BaseHTTPRequestHandler):
 
         try:
             result = subprocess.run(
-                ["yt-dlp", "--flat-playlist", "--dump-single-json", url], capture_output=True, text=True, timeout=60
+                [YT_DLP_PATH, "--flat-playlist", "--dump-single-json", url], capture_output=True, text=True, timeout=60
             )
             if result.returncode != 0:
                 self.send_response(500)
