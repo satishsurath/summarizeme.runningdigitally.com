@@ -162,9 +162,9 @@ def vllm_generate_chunk(model_name, prompt, client=None):
         prompt: Prompt text
         client: Optional OpenAI client for dependency injection (testing)
     """
-    llm_url = VLLM_GEN_URL
-
     from app_config import shared_logger
+
+    llm_url = VLLM_GEN_URL
 
     if not _HAS_OPENAI:
         shared_logger.error("openai SDK not installed")
@@ -206,7 +206,7 @@ def vllm_generate_chunk(model_name, prompt, client=None):
                 )
                 return ""
         except httpx.HTTPError:
-            logger.exception("vLLM httpx fallback failed")
+            shared_logger.exception("vLLM httpx fallback failed")
             return ""
 
     return data.strip() if data else ""
@@ -220,9 +220,9 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
         client: Optional OpenAI client for dependency injection (testing)
         model_name: Embedding model identifier (default: nomic embed)
     """
-    llm_url = VLLM_EMBED_URL
     from app_config import shared_logger
 
+    llm_url = VLLM_EMBED_URL
     if not _HAS_OPENAI:
         shared_logger.error("openai SDK not installed")
         return None
@@ -259,7 +259,7 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
                 )
                 return None
         except httpx.HTTPError:
-            logger.exception("vLLM embed httpx fallback failed")
+            shared_logger.exception("vLLM embed httpx fallback failed")
             return None
 
     return data

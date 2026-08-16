@@ -89,7 +89,12 @@ class TestSummarizeApi:
     def test_summarize_returns_task_id(self, client, with_db, mock_vllm_response):
         """Summarize endpoint should return a task ID."""
         resp = client.post(
-            "/api/summarize_v2", json={"channel_name": "test-channel", "video_ids": ["vid1", "vid2"], "model": "phi4"}
+            "/api/summarize_v2",
+            json={
+                "channel_name": "test-channel",
+                "video_ids": ["vid1", "vid2"],
+                "model": "nemo-qwen3.6-35b-a3b-nvfp4",
+            },
         )
         assert resp.status_code == 200
         data = json.loads(resp.data)
