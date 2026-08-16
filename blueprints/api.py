@@ -3,6 +3,7 @@
 import datetime
 import re
 import threading
+import uuid
 
 import requests
 from flask import Blueprint, jsonify, request
@@ -37,7 +38,7 @@ def api_channel_start():
         return jsonify({"status": "error", "message": "No channel_url provided"}), 400
 
     channel_url = data["channel_url"].strip()
-    task_id = f"dl_{len(download_statuses) + 1}"
+    task_id = f"dl_{uuid.uuid4().hex[:8]}"
     download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
 
     def run_download():
@@ -132,7 +133,7 @@ def api_summarize_v2():
     if not channel_name or not video_ids:
         return jsonify({"status": "error", "message": "channel_id or video_ids missing"}), 400
 
-    task_id = f"summ_v2_{len(summarize_v2_statuses) + 1}"
+    task_id = f"summ_v2_{uuid.uuid4().hex[:8]}"
     summarize_v2_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": len(video_ids), "errors": []}
 
     def run_summarize_v2():
@@ -143,7 +144,9 @@ def api_summarize_v2():
                 existing_folder = session.query(VideoFolder).filter_by(folder_name=channel_name, video_id=vid).first()
                 if not existing_folder:
                     folder_assoc = VideoFolder(
-                        folder_name=channel_name, video_id=vid, last_modified=datetime.datetime.now(datetime.UTC)
+                        folder_name=channel_name,
+                        video_id=vid,
+                        last_modified=datetime.datetime.now(datetime.timezone.utc),  # noqa: UP017
                     )
                     session.add(folder_assoc)
                     session.commit()
@@ -186,7 +189,7 @@ def api_summarize_v2():
                     video_id=vid,
                     video_title=video_obj.title,
                     model_name=model_name,
-                    date_generated=datetime.datetime.now(datetime.UTC),
+                    date_generated=datetime.datetime.now(datetime.timezone.utc),  # noqa: UP017
                     concise_summary="\n".join(all_concise).strip(),
                     key_topics="\n".join(all_topics).strip(),
                     important_takeaways="\n".join(all_takeaways).strip(),
@@ -303,7 +306,7 @@ def api_refresh_channel():
         original_playlist_id = folder_obj.original_playlist_id or human_playlist_name
         channel_url = f"https://www.youtube.com/playlist?list={original_playlist_id}"
 
-        task_id = f"refresh_{human_playlist_name}_{int(datetime.datetime.now(datetime.UTC).timestamp())}"
+        task_id = f"refresh_{uuid.uuid4().hex[:8]}"
         download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
 
         def run_refresh():

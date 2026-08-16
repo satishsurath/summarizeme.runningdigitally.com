@@ -117,15 +117,16 @@ class TestApiChannelStatus:
         """Status endpoint should return 200 for existing task."""
         with (
             patch("app.get_current_user", return_value=("admin@test.com", "admin")),
-            patch("app.download_channel_transcripts"),
+            patch("blueprints.api.download_channel_transcripts"),
         ):
             # First initiate a task
-            client.post(
+            resp = client.post(
                 "/api/channel/start",
                 json={"channel_url": "https://www.youtube.com/channel/test"},
             )
+            task_id = json.loads(resp.data)["task_id"]
             # Then check status
-            resp = client.get("/api/channel/status/dl_1")
+            resp = client.get(f"/api/channel/status/{task_id}")
             assert resp.status_code == 200
 
 

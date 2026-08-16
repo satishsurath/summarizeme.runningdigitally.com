@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text
 
 from app_config import (
+    VLLM_EMBED_MODEL,
     SessionLocal,
     chat_channel_sql_templates,
     chat_video_sql_templates,
@@ -62,12 +63,13 @@ def api_chat_channel(channel_name):
         "transcript": "public.videos_transcript_no_ts_embedding",
     }
     selected_view = embeddings_view_map.get(data_type, embeddings_view_map["comprehensive_notes"])
-
+    if selected_view not in chat_channel_sql_templates:
+        return jsonify({"answer": "Invalid data type."}), 400
     session = SessionLocal()
     final_answer = ""
     used_videos_html = ""
     try:
-        user_query_emb = vllm_embed_chunk(user_query, model_name="nemo-nomic-embed-text-v1.5")
+        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL)
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
@@ -184,6 +186,8 @@ def api_chat_video(video_id):
     """AJAX endpoint for chatting with a single video's content."""
     data = request.json or {}
     user_query = data.get("query", "")
+    if not user_query:
+        return jsonify({"answer": "No query provided."}), 400
     data_type = data.get("data_type", "comprehensive_notes")
     model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
@@ -200,10 +204,9 @@ def api_chat_video(video_id):
     }
 
     selected_table = embeddings_table_map.get(data_type, embeddings_table_map["comprehensive_notes"])
-
     session = SessionLocal()
     try:
-        user_query_emb = vllm_embed_chunk(user_query, model_name="nemo-nomic-embed-text-v1.5")
+        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL)
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
