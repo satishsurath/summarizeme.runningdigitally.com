@@ -58,9 +58,29 @@ services as limitations. They are not successful validation.
 
 ## Pull Request Code Review Cycle
 
-Every PR must pass a thorough code review before merging. The cycle is:
+Every PR must pass both a GitHub Copilot review and a thorough manual code
+review before merging. The cycle is:
 
-### Review Process
+### Step 1 — GitHub Copilot Review
+
+1. **Trigger review.** Comment `@copilot review` on the PR draft. This initiates
+   the GitHub Copilot code review process.
+2. **Wait for results.** Monitor the PR for Copilot's review comment — either
+   **findings** (issues to fix) or an **"all clear"** (no issues found).
+3. **If findings:**
+   - Read Copilot's review comments carefully.
+   - Fix each finding in the branch.
+   - Commit and push the fixes.
+   - Comment `@copilot review` **again** to re-trigger the review.
+   - Repeat until you receive an "all clear".
+4. **If all clear:** Proceed to Step 2.
+
+**Never merge** a PR that still has open Copilot findings. The "all clear"
+signal is the gate — without it, the PR is not ready.
+
+### Step 2 — Manual Review Process
+
+After Copilot clears, run a manual review to catch issues Copilot may miss:
 
 1. **Prepare the branch.** Ensure the branch is up to date with `main`, all
    local changes are committed, and tests pass locally:
@@ -115,6 +135,7 @@ Every PR must pass a thorough code review before merging. The cycle is:
 ### Merge Criteria
 
 A PR is ready to merge only when:
+- Copilot review is "all clear"
 - All CRITICAL and HIGH issues are resolved
 - All tests pass (ruff, pytest, Docker build)
 - Runtime verification passes (health endpoint, key functionality)
@@ -130,9 +151,6 @@ git merge origin/main  # fast-forward if possible
 git push origin fix/<branch>  # ensure PR is up to date
 # Then squash-merge via `gh pr merge` or GitHub UI
 ```
-
-**Never merge** a PR with open CRITICAL or HIGH findings. The absence of
-blocking issues is the gate — without verification, the PR is not ready.
 
 ## Post-Merge Branch Workflow
 After a PR is merged to `main`, always switch the local branch back to `main` and
