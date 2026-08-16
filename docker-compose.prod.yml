@@ -1,0 +1,114 @@
+# Production Docker Compose for SummarizeMe
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.prod.yml down
+#
+# Prerequisites:
+#   - .env file with production secrets (see .env.example)
+#   - External PostgreSQL (TimescaleDB recommended)
+#   - External Redis
+#   - External vLLM endpoints (VLLM_GEN_HOST, VLLM_EMBED_HOST)
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - VLLM_EMBED_HOST=${VLLM_EMBED_HOST}
+      - VLLM_EMBED_PORT=${VLLM_EMBED_PORT}
+      - VLLM_GEN_HOST=${VLLM_GEN_HOST}
+      - VLLM_GEN_PORT=${VLLM_GEN_PORT}
+      - REDIS_URL=${REDIS_URL}
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=production
+      - DEV_AUTH_ENABLED=${DEV_AUTH_ENABLED:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "2G"
+        reservations:
+          cpus: "0.5"
+          memory: "512M"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  db:
+    image: timescale/timescaledb-ha:pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-summarizeme}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-summarizeme_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-summarizeme}
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-summarizeme} -d ${POSTGRES_DB:-summarizeme}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "4G"
+        reservations:
+          cpus: "1.0"
+          memory: "1G"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "128M"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  pgdata:
+    driver: local
+  redis-data:
+    driver: local
