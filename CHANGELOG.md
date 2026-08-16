@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `run_vectorizers.py` for embedding backfill with UNIQUE constraints
 - youtu.be URL support for single video downloads
 - Database persistence via host path mount (`./.data/postgres`)
-- Problem tickets in `.omp/problem-tickets/`
+  - Problem tickets in `docs/problem-tickets/`
 - PR code review cycle instructions in `AGENTS.md`
 - Structured logging via `shared_logger`
 - Alembic migrations setup with initial schema migration
