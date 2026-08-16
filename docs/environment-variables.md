@@ -5,7 +5,7 @@
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string (`postgresql://user:pass@host:port/db`) |
-| `REDIS_URL` | Yes | — | Redis connection string (`redis://host:port/db`) |
+| `REDIS_URL` | Yes | `redis://redis:6379/0` | Redis connection string |
 | `SECRET_KEY` | Yes | — | Flask secret key for sessions and CSRF |
 | `FLASK_ENV` | No | `production` | Flask environment (`development` or `production`) |
 | `DEV_AUTH_ENABLED` | No | `false` | Enable development auth mode (do NOT use in production) |
@@ -14,7 +14,7 @@
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `VLLM_GEN_HOST` | Yes | — | vLLM generation service host |
+| `VLLM_GEN_HOST` | Yes | `<vllm-host>` | vLLM generation service host |
 | `VLLM_GEN_PORT` | No | `8000` | vLLM generation service port |
 | `VLLM_GEN_API_KEY` | No | — | API key for vLLM generation endpoint |
 
@@ -22,7 +22,7 @@
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `VLLM_EMBED_HOST` | Yes | — | vLLM embedding service host |
+| `VLLM_EMBED_HOST` | Yes | `<vllm-host>` | vLLM embedding service host |
 | `VLLM_EMBED_PORT` | No | `8001` | vLLM embedding service port |
 | `VLLM_EMBED_API_KEY` | No | — | API key for vLLM embedding endpoint |
 | `VLLM_EMBED_MODEL` | No | `nemo-nomic-embed-text-v1.5` | Embedding model name |
@@ -32,7 +32,7 @@
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `POSTGRES_USER` | No | `summarizeme` | PostgreSQL username |
-| `POSTGRES_PASSWORD` | No | `summarizeme_pass` | PostgreSQL password |
+| `POSTGRES_PASSWORD` | No | — | PostgreSQL password (sensitive) |
 | `POSTGRES_DB` | No | `summarizeme` | PostgreSQL database name |
 
 ## Backup

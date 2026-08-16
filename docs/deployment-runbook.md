@@ -24,19 +24,23 @@ curl http://localhost:8000/health
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `VLLM_GEN_HOST` | Yes | vLLM generation host |
-| `VLLM_GEN_PORT` | Yes | vLLM generation port (default 8000) |
-| `VLLM_EMBED_HOST` | Yes | vLLM embedding host |
-| `VLLM_EMBED_PORT` | Yes | vLLM embedding port (default 8001) |
-| `REDIS_URL` | Yes | Redis connection string |
-| `SECRET_KEY` | Yes | Flask secret key (generate with `secrets.token_hex(32)`) |
-| `DEV_AUTH_ENABLED` | No | Set to `false` in production |
-| `POSTGRES_USER` | No | PostgreSQL username (default: summarizeme) |
-| `POSTGRES_PASSWORD` | No | PostgreSQL password |
-| `POSTGRES_DB` | No | PostgreSQL database name (default: summarizeme) |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `VLLM_GEN_HOST` | Yes | — | vLLM generation host |
+| `VLLM_GEN_PORT` | No | `8000` | vLLM generation port |
+| `VLLM_EMBED_HOST` | Yes | — | vLLM embedding host |
+| `VLLM_EMBED_PORT` | No | `8001` | vLLM embedding port |
+| `REDIS_URL` | Yes | — | Redis connection string |
+| `SECRET_KEY` | Yes | — | Flask secret key (generate with `secrets.token_hex(32)`) |
+| `DEV_AUTH_ENABLED` | No | `false` | Enable development auth mode |
+| `VLLM_EMBED_MODEL` | No | `nemo-nomic-embed-text-v1.5` | Embedding model name |
+| `VLLM_GEN_API_KEY` | No | — | API key for vLLM generation endpoint |
+| `VLLM_EMBED_API_KEY` | No | — | API key for vLLM embedding endpoint |
+| `FLASK_ENV` | No | `production` | Flask environment |
+| `POSTGRES_USER` | No | `summarizeme` | PostgreSQL username |
+| `POSTGRES_PASSWORD` | No | — | PostgreSQL password |
+| `POSTGRES_DB` | No | `summarizeme` | PostgreSQL database name |
 
 ## Database Setup
 
@@ -53,11 +57,12 @@ docker compose -f docker-compose.prod.yml exec app alembic upgrade head
 ### Backup
 
 ```bash
-# Create backup
+# Create backup (compressed)
 docker compose -f docker-compose.prod.yml exec app python backup_database.py --compress
 
 # Restore from backup
-docker compose -f docker-compose.prod.yml exec app bash -c "gunzip -c /backups/summarizeme_*.sql.gz | psql -U summarizeme -d summarizeme"
+docker compose -f docker-compose.prod.yml cp backups/summarizeme_YYYYMMDD_HHMMSS.sql app:/app/backups/
+docker compose -f docker-compose.prod.yml exec db psql -U ${POSTGRES_USER:-summarizeme} -d ${POSTGRES_DB:-summarizeme} < /app/backups/summarizeme_YYYYMMDD_HHMMSS.sql
 ```
 
 ## Health Checks
@@ -79,13 +84,21 @@ Docker Compose health checks:
 The production Dockerfile uses Gunicorn with 4 workers:
 
 ```dockerfile
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "300", "wsgi:app"]
 ```
 
 To scale:
 1. Increase worker count in `Dockerfile` or use environment variable
 2. Increase resource limits in `docker-compose.prod.yml`
-3. Use horizontal scaling with a load balancer
+
+## Rollback
+
+```bash
+# Tag production image before deploy: docker tag summarizeme:latest summarizeme:v1.0.0
+# On rollback, specify the previous tag:
+docker compose -f docker-compose.prod.yml up -d --no-deps app  # restart with current image
+# Or revert to previous tag by editing docker-compose.prod.yml or .env
+```
 
 ## Monitoring
 

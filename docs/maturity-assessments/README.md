@@ -5,7 +5,7 @@ Periodic maturity assessments of the SummarizeMe codebase. Each subdirectory con
 ## Directory Structure
 
 ```
-.omp/maturity-assessments/
+docs/maturity-assessments/
 ├── 2026-08-15/
 │   ├── consolidated-maturity-assessment.md   # Executive summary + prioritized roadmap
 │   ├── 01-documentation-quality-audit.md     # Documentation dimension findings
