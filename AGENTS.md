@@ -172,4 +172,4 @@ change-impact candidates. Confirm material paths with source reads, raw Git diff
 tests, and runtime configuration. Missing graph edges mean unknown, not absent.
 
 Record only consequential graph misses, stale results, or false confidence in
-`.omp/ACCURACY-LEDGER.md`.
+`docs/maturity-assessments/` and `docs/problem-tickets/`.

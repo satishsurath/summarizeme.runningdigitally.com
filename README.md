@@ -8,15 +8,28 @@ variables.
 
 ## Repository map
 
-- `app.py`: Flask routes for channels, videos, summaries, chat, and administration.
-- `db/models.py`: SQLAlchemy models for videos, folders, summaries, sync jobs, and
-  users.
-- `youtube_utils.py`: YouTube playlist and transcript acquisition.
-- `summarizer_v2.py`: transcript chunking, prompts, generation, and embeddings.
-- `auth_utils.py`: Cloudflare Access JWT and explicit development-auth behavior.
-- `run_vectorizers.py`: PostgreSQL embedding backfill.
-- `init_db.py`: creates SQLAlchemy tables.
-- `docker-compose.dev.yml`: local PostgreSQL, Redis, vLLM, and application services.
+- `blueprints/main.py`: Flask routes for web pages (index, status, videos, chat pages)
+- `blueprints/api.py`: REST API endpoints (channels, videos, summaries, tasks, vLLM)
+- `blueprints/chat.py`: Chat endpoints (channel chat, video chat)
+- `blueprints/admin.py`: Admin endpoints (settings, user management)
+- `db/models.py`: SQLAlchemy models for videos, folders, summaries, users
+- `summarizer_v2.py`: Transcript chunking, prompts, generation, embeddings
+- `youtube_utils.py`: YouTube playlist and transcript acquisition
+- `auth_utils.py`: Cloudflare Access JWT and development auth
+- `run_vectorizers.py`: PostgreSQL embedding backfill
+- `app_config.py`: Central configuration, SQL templates, structured logging
+- `init_db.py`: Creates SQLAlchemy tables
+- `backup_database.py`: Database backup utility with compression and retention
+- `docker-compose.dev.yml`: Local PostgreSQL, Redis, and application services
+- `docker-compose.prod.yml`: Production deployment with health checks and resource limits
+
+## Documentation
+
+Detailed documentation is available in the [docs/](docs/) directory:
+- [Architecture](docs/architecture.md) — System architecture, components, data flows
+- [API Reference](docs/api-reference.md) — All REST API endpoints
+- [Deployment Runbook](docs/deployment-runbook.md) — Production deployment procedures
+- [Environment Variables](docs/environment-variables.md) — Configuration reference
 
 Repository-level assistant instructions are in [AGENTS.md](AGENTS.md).
 
