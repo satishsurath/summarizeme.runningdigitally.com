@@ -58,27 +58,83 @@ services as limitations. They are not successful validation.
 
 ## Pull Request Code Review Cycle
 
-Every PR must pass a GitHub Copilot code review before merging. The cycle is:
+Every PR must pass a thorough code review before merging. The cycle is:
 
-1. **Trigger review.** Comment `@copilot review` on the PR draft. This initiates the
-   GitHub Copilot code review process.
-2. **Wait for results.** Monitor the PR for Copilot's review comment — either
-   **findings** (issues to fix) or an **"all clear"** (no issues found).
-3. **If findings:**
-   - Read Copilot's review comments carefully.
-   - Fix each finding in the branch.
-   - Commit and push the fixes.
-   - Complete any required PR review cycles (approve/review as appropriate).
-   - Comment `@copilot review` **again** to re-trigger the review.
-   - Repeat steps 2–3 until you receive an "all clear".
-4. **If all clear:**
-   - The PR is ready to merge.
-   - Squash-merge to main with a descriptive subject line.
-5. **Never merge** a PR that still has open Copilot findings. The "all clear"
-   signal is the gate — without it, the PR is not ready.
+### Review Process
+
+1. **Prepare the branch.** Ensure the branch is up to date with `main`, all
+   local changes are committed, and tests pass locally:
+   ```bash
+   git fetch origin
+   git rebase origin/main  # or merge, as appropriate
+   .venv/bin/ruff check . && .venv/bin/ruff format --check .
+   .venv/bin/pytest tests/unit/ tests/integration/ -q
+   ```
+
+2. **Run parallel review subagents.** Spawn 4–6 review agents in parallel, each
+   targeting a specific file or concern. Example agents:
+   - `ReviewSummarizerV2` — summarizer_v2.py: exception handling, logging, model names
+   - `ReviewAppConfig` — app_config.py: SQL templates, log messages, imports
+   - `ReviewChatBlueprint` — blueprints/chat.py: SQL query, error handling, model names
+   - `ReviewApiBlueprint` — blueprints/api.py: model defaults, logging, endpoint behavior
+   - `ReviewVectorizers` — run_vectorizers.py: UNIQUE constraint, auth token, index
+   - `ReviewTestsDocker` — tests/, Docker/, CI: coverage, build, health checks
+
+   Each agent must read the target file(s), identify issues by severity
+   (CRITICAL/HIGH/MEDIUM/LOW), and report actionable fixes.
+
+3. **Compile and prioritize findings.** Aggregate all agent outputs. Fix in
+   priority order:
+   - **CRITICAL** — Must fix before merge (data loss, security, broken functionality)
+   - **HIGH** — Should fix (silent failures, code quality, security risks)
+   - **MEDIUM** — Nice to fix (maintainability, consistency, edge cases)
+   - **LOW** — Deferred (cosmetic, future improvements)
+
+4. **Fix and verify.** Apply fixes, then re-run all gates:
+   ```bash
+   .venv/bin/ruff check . && .venv/bin/ruff format .
+   .venv/bin/pytest tests/unit/ tests/integration/ -q
+   docker compose -f docker-compose.dev.yml build app  # if code changed
+   docker compose -f docker-compose.dev.yml up -d
+   curl -s http://localhost:5001/health  # verify runtime
+   ```
+
+5. **Second-pass review.** After fixes, run a second review pass (fewer agents,
+   focused on verifying fixes and catching any new issues introduced). Only one
+   pass is needed if no issues are found.
+
+6. **Post review comments.** Use `gh pr review` to post a structured review
+   comment on the PR. Include:
+   - Review status (APPROVED with notes / Changes requested)
+   - Checklist of all gates (ruff, pytest, Docker, runtime)
+   - Positive findings
+   - Remaining issues (with severity and fix suggestions)
+   - File change summary
+   - Verification results
+
+### Merge Criteria
+
+A PR is ready to merge only when:
+- All CRITICAL and HIGH issues are resolved
+- All tests pass (ruff, pytest, Docker build)
+- Runtime verification passes (health endpoint, key functionality)
+- No open findings remain
+- Review comment posted on the PR
+
+### Merge Procedure
+
+When all criteria are met:
+```bash
+git fetch origin
+git merge origin/main  # fast-forward if possible
+git push origin fix/<branch>  # ensure PR is up to date
+# Then squash-merge via `gh pr merge` or GitHub UI
+```
+
+**Never merge** a PR with open CRITICAL or HIGH findings. The absence of
+blocking issues is the gate — without verification, the PR is not ready.
 
 ## Post-Merge Branch Workflow
-
 After a PR is merged to `main`, always switch the local branch back to `main` and
 fast-forward it:
 
