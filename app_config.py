@@ -23,8 +23,8 @@ from db.models import SummariesV2, User, Video, VideoFolder  # noqa: F401  # re-
 from summarizer_v2 import (  # noqa: F401  # re-exported for blueprints
     build_prompts_for_chunk,
     chunk_transcript,
-    ollama_embed_chunk,
-    ollama_generate_chunk,
+    vllm_embed_chunk,
+    vllm_generate_chunk,
 )
 from youtube_utils import download_channel_transcripts  # noqa: F401  # re-exported for blueprints
 
@@ -45,9 +45,15 @@ load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
 if not DB_URL:
     raise RuntimeError("DATABASE_URL is not set. Create a .env file or export DATABASE_URL before starting the app.")
+if not (
+    DB_URL.startswith("postgresql://") or DB_URL.startswith("postgresql+psycopg2://") or DB_URL.startswith("sqlite://")
+):
+    raise RuntimeError(
+        f"DATABASE_URL must start with 'postgresql://' or 'postgresql+psycopg2://', got: {DB_URL[:50]}..."
+    )
 engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)  # 30 minutes
 SessionLocal = sessionmaker(bind=engine)
-
+VLLM_EMBED_MODEL = os.getenv("VLLM_EMBED_MODEL", "nemo-nomic-embed-text-v1.5")
 
 # Configure structured logging
 _formatter = logging.Formatter(
@@ -61,8 +67,6 @@ _logger.setLevel(logging.INFO)
 if not _logger.handlers:
     _logger.addHandler(_handler)
 
-# Read the env file
-load_dotenv()
 
 # vLLM instance for embeddings (nomic-embed-text)
 _VLLM_EMBED_HOST = os.getenv("VLLM_EMBED_HOST", "localhost")
@@ -74,21 +78,8 @@ _VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
 _VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
 VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
 
-# Ollama fallback (legacy)
-_REMOTE_OLLAMA_HOST = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
-OLLAMA_URL = f"http://{_REMOTE_OLLAMA_HOST}:11434"
-
-# Use vLLM if configured, otherwise fall back to Ollama
-if os.getenv("VLLM_GEN_HOST"):
-    _LLM_GEN_URL = VLLM_GEN_URL
-    _LLM_EMBED_URL = VLLM_EMBED_URL
-    _logger.info("[Embed LLM] Using vLLM: %s", _LLM_EMBED_URL)
-    _logger.info("[Gen LLM]   Using vLLM: %s", _LLM_GEN_URL)
-else:
-    _LLM_GEN_URL = OLLAMA_URL
-    _LLM_EMBED_URL = OLLAMA_URL
-    _logger.info("[Embed LLM] Using Ollama: %s", _LLM_EMBED_URL)
-    _logger.info("[Gen LLM]   Using Ollama: %s", _LLM_GEN_URL)
+_logger.info("[Embed LLM] Using vLLM: %s", VLLM_EMBED_URL)
+_logger.info("[Gen LLM]   Using vLLM: %s", VLLM_GEN_URL)
 
 
 # In-memory storage for statuses (for demo).
@@ -132,75 +123,39 @@ def require_role(allowed_roles):
 # Chat SQL templates (shared by chat blueprint)
 # ---------------------------------------------------------------------------
 
+# Single base template for channel queries (all keys share identical SQL)
+_CHAT_CHANNEL_SQL_TEMPLATE = """
+    SELECT ev.content, s.video_id, v.title AS video_title,
+           1 - (ev.embedding <=> :q_emb) AS similarity
+    FROM %(view)s ev
+    JOIN summaries_v2 s ON ev.source_id = s.id::VARCHAR
+    JOIN video_folders vf ON s.video_id = vf.video_id
+    JOIN videos v        ON s.video_id = v.video_id
+    WHERE vf.folder_name = :chan
+    ORDER BY similarity DESC LIMIT 5
+"""
+
 CHAT_CHANNEL_SQL_TEMPLATES = {
-    "public.summaries_v2_comprehensive_notes_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
-               1 - (ev.embedding <=> :q_emb) AS similarity
-        FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
-        WHERE vf.folder_name = :chan
-        ORDER BY similarity DESC LIMIT 5
-    """,
-    "public.summaries_v2_concise_summary_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
-               1 - (ev.embedding <=> :q_emb) AS similarity
-        FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
-        WHERE vf.folder_name = :chan
-        ORDER BY similarity DESC LIMIT 5
-    """,
-    "public.summaries_v2_key_topics_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
-               1 - (ev.embedding <=> :q_emb) AS similarity
-        FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
-        WHERE vf.folder_name = :chan
-        ORDER BY similarity DESC LIMIT 5
-    """,
-    "public.summaries_v2_important_takeaways_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
-               1 - (ev.embedding <=> :q_emb) AS similarity
-        FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
-        WHERE vf.folder_name = :chan
-        ORDER BY similarity DESC LIMIT 5
-    """,
-    "public.videos_embedding": """
-        SELECT ev.chunk, ev.video_id, v.title AS video_title,
-               1 - (ev.embedding <=> :q_emb) AS similarity
-        FROM %(view)s ev
-        JOIN video_folders vf ON ev.video_id = vf.video_id
-        JOIN videos v        ON ev.video_id = v.video_id
-        WHERE vf.folder_name = :chan
-        ORDER BY similarity DESC LIMIT 5
-    """,
+    "public.summaries_v2_comprehensive_notes_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
+    "public.summaries_v2_concise_summary_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
+    "public.summaries_v2_key_topics_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
+    "public.summaries_v2_important_takeaways_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
+    "public.videos_transcript_no_ts_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
 }
 
+
+# Single base template for video queries (all keys share identical SQL)
+_CHAT_VIDEO_SQL_TEMPLATE = """
+    SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
+    FROM %(view)s WHERE source_id = :vid ORDER BY similarity DESC LIMIT 5
+"""
+
 CHAT_VIDEO_SQL_TEMPLATES = {
-    "public.summaries_v2_comprehensive_notes_embedding": """
-        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
-        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
-    """,
-    "public.summaries_v2_concise_summary_embedding": """
-        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
-        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
-    """,
-    "public.summaries_v2_key_topics_embedding": """
-        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
-        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
-    """,
-    "public.summaries_v2_important_takeaways_embedding": """
-        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
-        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
-    """,
-    "public.videos_embedding": """
-        SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
-        FROM %(view)s WHERE video_id = :vid ORDER BY similarity DESC LIMIT 5
-    """,
+    "public.summaries_v2_comprehensive_notes_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
+    "public.summaries_v2_concise_summary_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
+    "public.summaries_v2_key_topics_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
+    "public.summaries_v2_important_takeaways_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
+    "public.videos_transcript_no_ts_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
 }
 
 
@@ -213,3 +168,4 @@ shared_logger = _logger  # blueprint alias (used by api.py)
 chat_channel_sql_templates = CHAT_CHANNEL_SQL_TEMPLATES  # blueprint alias
 chat_video_sql_templates = CHAT_VIDEO_SQL_TEMPLATES  # blueprint alias
 text = text  # blueprint alias
+VLLM_EMBED_MODEL = VLLM_EMBED_MODEL  # blueprint alias
