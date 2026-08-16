@@ -45,9 +45,15 @@ load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
 if not DB_URL:
     raise RuntimeError("DATABASE_URL is not set. Create a .env file or export DATABASE_URL before starting the app.")
+if not (
+    DB_URL.startswith("postgresql://") or DB_URL.startswith("postgresql+psycopg2://") or DB_URL.startswith("sqlite://")
+):
+    raise RuntimeError(
+        f"DATABASE_URL must start with 'postgresql://' or 'postgresql+psycopg2://', got: {DB_URL[:50]}..."
+    )
 engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)  # 30 minutes
 SessionLocal = sessionmaker(bind=engine)
-
+VLLM_EMBED_MODEL = os.getenv("VLLM_EMBED_MODEL", "nemo-nomic-embed-text-v1.5")
 
 # Configure structured logging
 _formatter = logging.Formatter(
@@ -162,3 +168,4 @@ shared_logger = _logger  # blueprint alias (used by api.py)
 chat_channel_sql_templates = CHAT_CHANNEL_SQL_TEMPLATES  # blueprint alias
 chat_video_sql_templates = CHAT_VIDEO_SQL_TEMPLATES  # blueprint alias
 text = text  # blueprint alias
+VLLM_EMBED_MODEL = VLLM_EMBED_MODEL  # blueprint alias

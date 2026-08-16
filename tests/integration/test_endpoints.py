@@ -101,10 +101,16 @@ class TestSummarizeApi:
         assert "task_id" in data
         assert data["status"] == "initiated"
 
-    def test_summarize_status(self, client, mock_vllm_response):
+    def test_summarize_status(self, client, with_db, mock_vllm_response):
         """Status endpoint should return task status."""
-        resp = client.get("/api/summarize_v2/status/summ_v2_1")
-        assert resp.status_code == 200
+        with patch("app.get_current_user", return_value=("admin@test.com", "admin")):
+            resp = client.post(
+                "/api/summarize_v2",
+                json={"channel_name": "test", "video_ids": ["vid1"]},
+            )
+            task_id = json.loads(resp.data)["task_id"]
+            resp = client.get(f"/api/summarize_v2/status/{task_id}")
+            assert resp.status_code == 200
 
 
 class TestChatApi:
@@ -117,12 +123,8 @@ class TestChatApi:
 
     def test_chat_video_requires_body(self, client, mock_vllm_response):
         """Chat-video should reject empty queries."""
-        # Empty query → should return an error (the endpoint returns 200 with error message)
         resp = client.post("/api/chat-video/vid1", json={})
-        # Endpoint returns answer string even for empty queries; check response has answer key
-        assert resp.status_code == 200
-        data = json.loads(resp.data)
-        assert "answer" in data
+        assert resp.status_code == 400
 
 
 class TestVllmModels:
