@@ -1,25 +1,25 @@
-"""API blueprint — channel, video, summarize, channels CRUD, ollama, all-tasks."""
+"""API blueprint — channel, video, summarize, channels CRUD, vLLM, all-tasks."""
 
 import datetime
-import os
 import re
 import threading
+import uuid
 
 import requests
 from flask import Blueprint, jsonify, request
 
 from app_config import (
-    _LLM_EMBED_URL,
-    _LLM_GEN_URL,
+    VLLM_EMBED_URL,
+    VLLM_GEN_URL,
     SessionLocal,
     SQLAlchemyError,
     build_prompts_for_chunk,
     chunk_transcript,
     download_channel_transcripts,
     download_statuses,
-    ollama_generate_chunk,
     require_role,
     summarize_v2_statuses,
+    vllm_generate_chunk,
 )
 from app_config import (
     shared_logger as logger,
@@ -38,7 +38,7 @@ def api_channel_start():
         return jsonify({"status": "error", "message": "No channel_url provided"}), 400
 
     channel_url = data["channel_url"].strip()
-    task_id = f"dl_{len(download_statuses) + 1}"
+    task_id = f"dl_{uuid.uuid4().hex[:8]}"
     download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
 
     def run_download():
@@ -128,12 +128,12 @@ def api_summarize_v2():
     data = request.get_json() or {}
     channel_name = data.get("channel_name", "").strip()
     video_ids = data.get("video_ids", [])
-    model_name = data.get("model", "phi4")
+    model_name = data.get("model", "nemo-qwen3.6-35b-a3b-nvfp4")
 
     if not channel_name or not video_ids:
         return jsonify({"status": "error", "message": "channel_id or video_ids missing"}), 400
 
-    task_id = f"summ_v2_{len(summarize_v2_statuses) + 1}"
+    task_id = f"summ_v2_{uuid.uuid4().hex[:8]}"
     summarize_v2_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": len(video_ids), "errors": []}
 
     def run_summarize_v2():
@@ -144,7 +144,9 @@ def api_summarize_v2():
                 existing_folder = session.query(VideoFolder).filter_by(folder_name=channel_name, video_id=vid).first()
                 if not existing_folder:
                     folder_assoc = VideoFolder(
-                        folder_name=channel_name, video_id=vid, last_modified=datetime.datetime.now(datetime.UTC)
+                        folder_name=channel_name,
+                        video_id=vid,
+                        last_modified=datetime.datetime.now(datetime.timezone.utc),  # noqa: UP017
                     )
                     session.add(folder_assoc)
                     session.commit()
@@ -178,16 +180,16 @@ def api_summarize_v2():
 
                 for chunk_str in chunked_texts:
                     prompts = build_prompts_for_chunk(chunk_str)
-                    all_concise.append(ollama_generate_chunk(model_name, prompts["concise"]))
-                    all_topics.append(ollama_generate_chunk(model_name, prompts["key_topics"]))
-                    all_takeaways.append(ollama_generate_chunk(model_name, prompts["takeaways"]))
-                    all_comprehensive.append(ollama_generate_chunk(model_name, prompts["comprehensive"]))
+                    all_concise.append(vllm_generate_chunk(model_name, prompts["concise"]))
+                    all_topics.append(vllm_generate_chunk(model_name, prompts["key_topics"]))
+                    all_takeaways.append(vllm_generate_chunk(model_name, prompts["takeaways"]))
+                    all_comprehensive.append(vllm_generate_chunk(model_name, prompts["comprehensive"]))
 
                 new_summary = SummariesV2(
                     video_id=vid,
                     video_title=video_obj.title,
                     model_name=model_name,
-                    date_generated=datetime.datetime.now(datetime.UTC),
+                    date_generated=datetime.datetime.now(datetime.timezone.utc),  # noqa: UP017
                     concise_summary="\n".join(all_concise).strip(),
                     key_topics="\n".join(all_topics).strip(),
                     important_takeaways="\n".join(all_takeaways).strip(),
@@ -295,16 +297,16 @@ def api_refresh_channel():
             )
             .first()
         )
-        print(f"folder_obj: {folder_obj}")
+        logger.debug(f"folder_obj: {folder_obj}")
         if not folder_obj:
-            print("Channel not found")
+            logger.warning("Channel not found")
             return jsonify({"status": "error", "message": "Channel not found"}), 404
 
         human_playlist_name = folder_obj.folder_name
         original_playlist_id = folder_obj.original_playlist_id or human_playlist_name
         channel_url = f"https://www.youtube.com/playlist?list={original_playlist_id}"
 
-        task_id = f"refresh_{human_playlist_name}_{int(datetime.datetime.now(datetime.UTC).timestamp())}"
+        task_id = f"refresh_{uuid.uuid4().hex[:8]}"
         download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
 
         def run_refresh():
@@ -394,31 +396,17 @@ def api_all_tasks():
     return jsonify(all_tasks)
 
 
-@api_bp.route("/ollama/models", methods=["GET"])
-def api_ollama_models():
-    """Returns model lists from both vLLM instances (if configured).
-    Falls back to Ollama if no vLLM is configured.
-    """
-    if os.getenv("VLLM_GEN_HOST"):
-        models = []
-        for url in [_LLM_EMBED_URL, _LLM_GEN_URL]:
-            try:
-                resp = requests.get(f"{url}/v1/models", timeout=10)
-                resp.raise_for_status()
-                data = resp.json()
-                if "data" in data:
-                    models.extend(data["data"])
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"Failed to list models from {url}: {e}")
-        return jsonify({"models": models})
-    else:
-        ollama_host = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
-        url = f"http://{ollama_host}:11434/v1/models"
+@api_bp.route("/vllm/models", methods=["GET"])
+def api_vllm_models():
+    """Returns model lists from both vLLM instances (if configured)."""
+    models = []
+    for url in [VLLM_EMBED_URL, VLLM_GEN_URL]:
         try:
-            resp = requests.get(url, timeout=10)
+            resp = requests.get(f"{url}/v1/models", timeout=10)
             resp.raise_for_status()
             data = resp.json()
-            return jsonify(data)
+            if "data" in data:
+                models.extend(data["data"])
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to list Ollama models: {e}")
-            return jsonify({"models": []}), 500
+            logger.warning(f"Failed to list models from {url}: {e}")
+    return jsonify({"models": models})

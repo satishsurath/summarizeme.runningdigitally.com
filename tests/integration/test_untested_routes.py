@@ -81,13 +81,13 @@ class TestApiChannelStart:
             )
             assert resp.status_code == 403
 
-    def test_channel_start_requires_body(self, client, mock_ollama_response):
+    def test_channel_start_requires_body(self, client, mock_vllm_response):
         """Channel start should reject missing body."""
         with patch("app.get_current_user", return_value=("admin@test.com", "admin")):
             resp = client.post("/api/channel/start", json={})
             assert resp.status_code == 400
 
-    def test_channel_start_returns_task_id(self, client, with_db, mock_ollama_response):
+    def test_channel_start_returns_task_id(self, client, with_db, mock_vllm_response):
         """Channel start should return a task ID."""
         with (
             patch("app.get_current_user", return_value=("admin@test.com", "admin")),
@@ -113,19 +113,20 @@ class TestApiChannelStatus:
         resp = client.get("/api/channel/status/invalid_task")
         assert resp.status_code == 404
 
-    def test_channel_status_valid_task(self, client, mock_ollama_response):
+    def test_channel_status_valid_task(self, client, mock_vllm_response):
         """Status endpoint should return 200 for existing task."""
         with (
             patch("app.get_current_user", return_value=("admin@test.com", "admin")),
-            patch("app.download_channel_transcripts"),
+            patch("blueprints.api.download_channel_transcripts"),
         ):
             # First initiate a task
-            client.post(
+            resp = client.post(
                 "/api/channel/start",
                 json={"channel_url": "https://www.youtube.com/channel/test"},
             )
+            task_id = json.loads(resp.data)["task_id"]
             # Then check status
-            resp = client.get("/api/channel/status/dl_1")
+            resp = client.get(f"/api/channel/status/{task_id}")
             assert resp.status_code == 200
 
 
@@ -137,7 +138,7 @@ class TestApiGetVideos:
         resp = client.get("/api/videos/")
         assert resp.status_code == 404
 
-    def test_get_videos_returns_json(self, client, with_db, mock_ollama_response):
+    def test_get_videos_returns_json(self, client, with_db, mock_vllm_response):
         """Get videos should return JSON with video list."""
         from app import SessionLocal
         from db.models import Video, VideoFolder
@@ -160,7 +161,7 @@ class TestApiGetVideos:
         assert "page" in data
         assert "page_size" in data
 
-    def test_get_videos_pagination(self, client, with_db, mock_ollama_response):
+    def test_get_videos_pagination(self, client, with_db, mock_vllm_response):
         """Get videos should support pagination."""
         from app import SessionLocal
         from db.models import Video, VideoFolder
@@ -186,7 +187,7 @@ class TestApiGetVideos:
         assert data["page_size"] == 3
         assert len(data["videos"]) == 3
 
-    def test_get_videos_sorting(self, client, with_db, mock_ollama_response):
+    def test_get_videos_sorting(self, client, with_db, mock_vllm_response):
         """Get videos should support sorting by title."""
         from app import SessionLocal
         from db.models import Video, VideoFolder
@@ -214,7 +215,7 @@ class TestApiGetVideos:
 class TestApiAllTasks:
     """Tests for the /api/all-tasks endpoint."""
 
-    def test_all_tasks_returns_list(self, client, mock_ollama_response):
+    def test_all_tasks_returns_list(self, client, mock_vllm_response):
         """All tasks should return a list."""
         resp = client.get("/api/all-tasks")
         assert resp.status_code == 200

@@ -27,16 +27,6 @@
                         </select>
                     </div>
 
-                    <!-- Model Selection -->
-                    <div>
-                        <label for="modelSelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Model:
-                        </label>
-                        <select id="modelSelect" 
-                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <!-- Dynamically populated -->
-                        </select>
-                    </div>
                 </div>
             </div>
 
@@ -97,24 +87,6 @@
 </div>
 
 <script>
-async function loadOllamaModels() {
-    try {
-        const resp = await fetch("/api/ollama/models");
-        const data = await resp.json();
-        const modelSelect = document.getElementById('modelSelect');
-        modelSelect.innerHTML = "";
-
-        data.data.forEach(m => {
-            const opt = document.createElement("option");
-            opt.value = m.id;
-            opt.textContent = m.id;
-            modelSelect.appendChild(opt);
-        });
-    } catch (err) {
-        console.error("Failed to load Ollama models:", err);
-        modelSelect.innerHTML = "<option value='phi4:latest'>phi4:latest</option>";
-    }
-}
 
 document.getElementById('sendBtn').addEventListener('click', async () => {
     const query = document.getElementById('userQuery').value.trim();
@@ -141,7 +113,7 @@ document.getElementById('sendBtn').addEventListener('click', async () => {
             body: JSON.stringify({ 
                 query, 
                 data_type: dataType, 
-                model_name: document.getElementById('modelSelect').value 
+                model_name: "nemo-qwen3.6-35b-a3b-nvfp4"
             })
         });
         const data = await resp.json();
@@ -162,6 +134,5 @@ document.getElementById('sendBtn').addEventListener('click', async () => {
 });
 
 // Load models on page load
-loadOllamaModels();
 </script>
 {% endblock %}

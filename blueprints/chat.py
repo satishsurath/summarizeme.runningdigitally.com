@@ -7,13 +7,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text
 
 from app_config import (
+    VLLM_EMBED_MODEL,
     SessionLocal,
     chat_channel_sql_templates,
     chat_video_sql_templates,
     logger,
     md_safe,
-    ollama_embed_chunk,
-    ollama_generate_chunk,
+    vllm_embed_chunk,
+    vllm_generate_chunk,
 )
 from db.models import Video, VideoFolder
 
@@ -44,10 +45,7 @@ def api_chat_channel(channel_name):
     data = request.json or {}
     user_query = data.get("query", "").strip()
     data_type = data.get("data_type", "comprehensive_notes")
-    model_name = data.get("model_name", "phi4:latest")
-
-    if model_name == "deepseek-r1:32b":
-        model_name = "gemma2:27b"
+    model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
     if not user_query:
         return jsonify({"answer": "No query provided."}), 400
@@ -62,23 +60,27 @@ def api_chat_channel(channel_name):
         "concise_summary": "public.summaries_v2_concise_summary_embedding",
         "key_topics": "public.summaries_v2_key_topics_embedding",
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
-        "transcript": "public.videos_embedding",
+        "transcript": "public.videos_transcript_no_ts_embedding",
     }
     selected_view = embeddings_view_map.get(data_type, embeddings_view_map["comprehensive_notes"])
-
+    if selected_view not in chat_channel_sql_templates:
+        return jsonify({"answer": "Invalid data type."}), 400
     session = SessionLocal()
+    final_answer = ""
+    used_videos_html = ""
     try:
-        user_query_emb = ollama_embed_chunk(user_query, model_name="nomic-ai/nomic-embed-text-v1.5")
+        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL)
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
         sql_top_chunks = text(chat_channel_sql_templates[selected_view] % {"view": selected_view})
-        chunk_rows = session.execute(sql_top_chunks, {"q_emb": user_query_emb, "chan": channel_name}).fetchall()
-
+        # Build embedding array literal for PostgreSQL vector type (bypasses parameter binding)
+        emb_literal = "ARRAY[" + ",".join(str(x) for x in user_query_emb) + "]::vector"
+        sql_with_emb = sql_top_chunks.compile().string.replace(":q_emb", emb_literal)
+        chunk_rows = session.execute(text(sql_with_emb), {"chan": channel_name}).fetchall()
         if not chunk_rows:
             final_answer = "No relevant content found for this channel and data type."
-            used_videos_html = ""
         else:
             context_pieces = []
             unique_videos = {}
@@ -104,7 +106,7 @@ User Query:
 Please provide a concise answer:
 """
 
-            final_answer = ollama_generate_chunk(model_name, prompt_str)
+            final_answer = vllm_generate_chunk(model_name, prompt_str)
 
             if not final_answer:
                 final_answer = "No answer was returned by the model."
@@ -155,6 +157,9 @@ Please provide a concise answer:
 def chat_video_page(video_id):
     """Renders a page that allows chatting with a single video's content."""
     session = SessionLocal()
+    video_name = ""
+    video_transcript = ""
+    folder_list: list[str] = []
     try:
         video = session.query(Video).filter_by(video_id=video_id).first()
 
@@ -181,8 +186,10 @@ def api_chat_video(video_id):
     """AJAX endpoint for chatting with a single video's content."""
     data = request.json or {}
     user_query = data.get("query", "")
+    if not user_query:
+        return jsonify({"answer": "No query provided."}), 400
     data_type = data.get("data_type", "comprehensive_notes")
-    model_name = data.get("model_name", "phi4")
+    model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
     logger.info(
         f"Chat-video query for video_id={video_id}, user_query={user_query}, data_type={data_type}, model={model_name}"
@@ -193,14 +200,13 @@ def api_chat_video(video_id):
         "concise_summary": "public.summaries_v2_concise_summary_embedding",
         "key_topics": "public.summaries_v2_key_topics_embedding",
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
-        "transcript": "public.videos_embedding",
+        "transcript": "public.videos_transcript_no_ts_embedding",
     }
 
     selected_table = embeddings_table_map.get(data_type, embeddings_table_map["comprehensive_notes"])
-
     session = SessionLocal()
     try:
-        user_query_emb = ollama_embed_chunk(user_query, model_name="nomic-ai/nomic-embed-text-v1.5")
+        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL)
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
@@ -214,9 +220,8 @@ def api_chat_video(video_id):
             context_pieces = [f"Chunk: {row[0]}" for row in chunk_rows]
             context_for_generation = "\n\n".join(context_pieces)
 
-            gen_model = model_name if model_name != "phi4:latest" else "meta-llama/Llama-3.1-8B-Instruct"
             prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
-            final_answer = ollama_generate_chunk(gen_model, prompt_text)
+            final_answer = vllm_generate_chunk(model_name, prompt_text)
 
             if not final_answer:
                 final_answer = "No answer was returned by the model."

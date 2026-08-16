@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 
@@ -5,37 +6,32 @@ import httpx
 from dotenv import load_dotenv
 
 try:
-    from openai import OpenAI as _OpenAI
+    from openai import (
+        APIConnectionError,
+        APIError,
+        APIStatusError,
+    )
+    from openai import (
+        OpenAI as _OpenAI,
+    )
 
     _HAS_OPENAI = True
 except ImportError:
     _HAS_OPENAI = False
 
-try:
-    from ollama import Client as _OllamaClient
-
-    _HAS_OLLAMA = True
-except ImportError:
-    _HAS_OLLAMA = False
-
 
 load_dotenv()
-# vLLM (OpenAI-compatible) or Ollama (backend-agnostic)
+# vLLM (OpenAI-compatible) LLM backend
 _VLLM_GEN_HOST = os.getenv("VLLM_GEN_HOST", "localhost")
+_VLLM_EMBED_HOST = os.getenv("VLLM_EMBED_HOST", "localhost")
+_VLLM_EMBED_PORT = os.getenv("VLLM_EMBED_PORT", "8001")
 _VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
 _VLLM_GEN_API_KEY = os.getenv("VLLM_GEN_API_KEY", "not-needed")
-_OLLAMA_HOST = os.getenv("REMOTE_OLLAMA_HOST", "localhost")
-_USE_VLLM = os.getenv("VLLM_GEN_HOST") is not None
-
 # Build URLs
 VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
-OLLAMA_URL = f"http://{_OLLAMA_HOST}:11434"
-LLM_BASE_URL = VLLM_GEN_URL if _USE_VLLM else OLLAMA_URL
+VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}"
 
-
-# Get the correct base URL
-def _get_llm_url():
-    return VLLM_GEN_URL if _USE_VLLM else OLLAMA_URL
+logger = logging.getLogger(__name__)
 
 
 def split_into_sentences(text):
@@ -158,31 +154,33 @@ TEXT:
     }
 
 
-def ollama_generate_chunk(model_name, prompt, client=None):
+def vllm_generate_chunk(model_name, prompt, client=None):
     """
-    Generate text via LLM backend (vLLM or Ollama).
+    Generate text via vLLM backend.
     Args:
         model_name: Model identifier
         prompt: Prompt text
         client: Optional OpenAI client for dependency injection (testing)
     """
-    llm_url = _get_llm_url()
+    from app_config import shared_logger
 
-    if _USE_VLLM:
-        if not _HAS_OPENAI:
-            print("[ERROR] openai SDK not installed")
-            return ""
+    llm_url = VLLM_GEN_URL
+
+    if not _HAS_OPENAI:
+        shared_logger.error("openai SDK not installed")
+        return ""
+    try:
+        chat_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
+        response = chat_client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4096,
+        )
+        msg = response.choices[0].message if response.choices else None
+        data = msg.content if msg and msg.content else (getattr(msg, "reasoning", None) or "")
+    except (APIError, APIStatusError, APIConnectionError, Exception):
+        # Fallback to httpx for vLLM compatibility
         try:
-            chat_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
-            response = chat_client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=4096,
-            )
-            msg = response.choices[0].message if response.choices else None
-            data = msg.content if msg and msg.content else (msg.reasoning if msg and msg.reasoning else "")
-        except Exception:
-            # Fallback to httpx for vLLM compatibility
             resp = httpx.post(
                 f"{llm_url}/v1/chat/completions",
                 json={
@@ -190,53 +188,83 @@ def ollama_generate_chunk(model_name, prompt, client=None):
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 4096,
                 },
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {_VLLM_GEN_API_KEY}"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {_VLLM_GEN_API_KEY}",
+                },
                 timeout=120,
             )
-            if resp.status_code == 200:
+            import json
+
+            try:
                 result = resp.json()
                 msg = result.get("choices", [{}])[0].get("message", {})
                 data = msg.get("content") or msg.get("reasoning") or ""
-            else:
-                print(f"[ERROR] vLLM HTTP error: {resp.status_code} {resp.text[:200]}")
+            except json.JSONDecodeError:
+                shared_logger.error("vLLM returned invalid JSON: %s", resp.text[:200])
                 return ""
-    else:
-        if not _HAS_OLLAMA:
-            print("[ERROR] ollama SDK not installed")
+            else:
+                shared_logger.error(
+                    "vLLM HTTP error: %s %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                return ""
+        except httpx.HTTPError:
+            shared_logger.exception("vLLM httpx fallback failed")
             return ""
-        chat_client = client or _OllamaClient(host=llm_url)
-        response = chat_client.chat(model=model_name, messages=[{"role": "user", "content": prompt}])
-        data = response.message.content or ""
 
     return data.strip() if data else ""
 
 
-def ollama_embed_chunk(text_input, client=None, model_name="nomic-ai/nomic-embed-text-v1.5"):
+def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-v1.5"):
     """
-    Generate embedding via embedding backend (vLLM or Ollama).
+    Generate embedding via vLLM backend.
     Args:
         text_input: Single string to embed
         client: Optional OpenAI client for dependency injection (testing)
         model_name: Embedding model identifier (default: nomic embed)
     """
-    llm_url = _get_llm_url()
+    from app_config import shared_logger
 
-    if _USE_VLLM:
-        if not _HAS_OPENAI:
-            print("[ERROR] openai SDK not installed")
-            return None
+    llm_url = VLLM_EMBED_URL
+    if not _HAS_OPENAI:
+        shared_logger.error("openai SDK not installed")
+        return None
+    try:
         embed_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
         response = embed_client.embeddings.create(
             model=model_name,
             input=[text_input],
         )
         data = response.data[0].embedding if response.data else None
-    else:
-        if not _HAS_OLLAMA:
-            print("[ERROR] ollama SDK not installed")
+    except (APIError, APIStatusError, APIConnectionError):
+        # Fallback to httpx for vLLM compatibility
+        try:
+            resp = httpx.post(
+                f"{llm_url}/v1/embeddings",
+                json={
+                    "model": model_name,
+                    "input": [text_input],
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {_VLLM_GEN_API_KEY}",
+                },
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                data = result.get("data", [{}])[0].get("embedding")
+            else:
+                shared_logger.error(
+                    "vLLM embed HTTP error: %s %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                return None
+        except httpx.HTTPError:
+            shared_logger.exception("vLLM embed httpx fallback failed")
             return None
-        embed_client = client or _OllamaClient(host=llm_url)
-        response = embed_client.embed(model=model_name, input=text_input)
-        data = response.embedding if hasattr(response, "embedding") else None
 
     return data
