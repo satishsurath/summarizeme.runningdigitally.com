@@ -1,7 +1,6 @@
 # SummarizeMe Architecture
 
 ## Overview
-
 SummarizeMe is a YouTube video summarization and chat application that uses
 vLLM for LLM generation and embeddings. It provides semantic search over
 video content using PostgreSQL with pgvector.
@@ -40,9 +39,7 @@ video content using PostgreSQL with pgvector.
          ▼                    ▼                    ▼
 ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
 │  PostgreSQL     │ │     Redis       │ │     vLLM        │
-│  (TimescaleDB)  │ │   (caching)     │ │  (gen:8000)     │
-│                 │ │                 │ │  (embed:8001)   │
-│ • videos        │ │ • task status   │ │ • nemo-qwen3.6  │
+│ • videos        │ │ (configured, not yet used) │ │ • nemo-qwen3.6  │
 │ • summaries_v2  │ │ • sessions      │ │   -35b-a3b-nvfp4│
 │ • video_folders │ │                 │ │ • nemo-nomic    │
 │ • embeddings    │ │                 │ │   -embed-text   │
@@ -69,7 +66,7 @@ Central configuration module that:
 - Defines SQL templates for chat (whitelist-based)
 - Configures structured logging (`shared_logger`)
 - Exports shared utilities for blueprints
-
+| `*_embedding` | Vector embeddings for semantic search (e.g., `videos_transcript_no_ts_embedding`) |
 ### Summarizer (`summarizer_v2.py`)
 
 Core summarization and embedding module:
@@ -84,7 +81,7 @@ YouTube content acquisition:
 - `download_channel_transcripts()` — Downloads transcripts for channel videos
 - `get_channel_and_videos()` — Fetches channel info and video list
 
-### Database (PostgreSQL/TimescaleDB)
+### Database (PostgreSQL with pgvector)
 
 | Table | Purpose |
 |-------|---------|
@@ -92,7 +89,7 @@ YouTube content acquisition:
 | `summaries_v2` | Generated summaries (concise, topics, takeaways) |
 | `video_folders` | Channel-to-video associations |
 | `users` | User accounts with roles (admin, member, reader) |
-| `*_embedding` | Vector embeddings for semantic search |
+| `*_embedding` | Vector embeddings for semantic search (e.g., `videos_transcript_no_ts_embedding`) |
 
 ### vLLM Backend
 
