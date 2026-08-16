@@ -44,7 +44,7 @@ def api_chat_channel(channel_name):
     data = request.json or {}
     user_query = data.get("query", "").strip()
     data_type = data.get("data_type", "comprehensive_notes")
-    model_name = data.get("model_name", "phi4:latest")
+    model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
     if not user_query:
         return jsonify({"answer": "No query provided."}), 400
@@ -155,6 +155,9 @@ Please provide a concise answer:
 def chat_video_page(video_id):
     """Renders a page that allows chatting with a single video's content."""
     session = SessionLocal()
+    video_name = ""
+    video_transcript = ""
+    folder_list: list[str] = []
     try:
         video = session.query(Video).filter_by(video_id=video_id).first()
 
