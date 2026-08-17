@@ -22,6 +22,8 @@ app.config["SECRET_KEY"] = os.getenv(
     "FLASK_SECRET_KEY",
     os.urandom(32).hex(),
 )
+app.jinja_env.globals["ICON_DATA"] = __import__("icon_data").ICON_DATA
+app.jinja_env.globals["SIZE_MAP"] = __import__("icon_data").SIZE_MAP
 
 # ---------------------------------------------------------------------------
 # Register blueprints

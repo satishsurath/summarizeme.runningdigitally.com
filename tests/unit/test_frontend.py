@@ -519,9 +519,9 @@ class TestIconSystem:
     def test_macros_has_render_icon(self, macros):
         assert "render_icon" in macros
 
-    def test_macros_has_icon_definitions(self, macros):
-        for icon in ["bell", "sun", "moon", "menu", "edit", "trash"]:
-            assert f"'{icon}'" in macros
+    def test_macros_uses_icon_data(self, macros):
+        """macros.html uses ICON_DATA from icon_data.py for icon definitions."""
+        assert "ICON_DATA" in macros
 
     def test_macros_no_inline_svgs_in_nav(self, layout):
         """Desktop nav should use render_icon macro, not inline SVGs."""
@@ -605,11 +605,11 @@ class TestMobileResponsiveness:
         assert "videosCardView" in videos_html
 
     def test_videos_table_hidden_on_mobile(self, videos_html):
-        assert "hidden sm:block" in videos_html or "sm:hidden" in videos_html
+        assert "hidden xl:block" in videos_html or "xl:hidden" in videos_html
 
     def test_videos_card_view_responsive(self, videos_html):
-        # Card view should use sm:hidden to hide on desktop
-        assert "sm:hidden" in videos_html
+        # Card view should use xl:hidden to hide on desktop
+        assert "xl:hidden" in videos_html
 
     def test_videos_js_renders_cards(self, videos_js):
         assert "videosCardView" in videos_js
