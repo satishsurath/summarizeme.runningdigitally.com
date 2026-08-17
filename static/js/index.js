@@ -270,6 +270,18 @@ document.addEventListener("DOMContentLoaded", () => {
   `;
   document.head.appendChild(style);
 
+  // Legend Toggle (mobile)
+  const legendToggle = document.getElementById("legendToggle");
+  const legendContent = document.getElementById("legendContent");
+  const legendChevron = document.getElementById("legendChevron");
+  if (legendToggle && legendContent && legendChevron) {
+    legendToggle.addEventListener("click", () => {
+      legendContent.classList.toggle("hidden");
+      legendChevron.style.transform = legendContent.classList.contains("hidden") ? "" : "rotate(180deg)";
+    });
+  }
+
+
   // Load channels on page load
   loadChannels();
 });
