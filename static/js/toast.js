@@ -36,21 +36,43 @@ class ToastManager {
    * @returns {string} Toast ID
    */
   show(message, type = 'info', duration = 5000) {
+    if (duration < 0) duration = 0;
+    if (duration > 30000) duration = 30000;
+    const validTypes = ['success', 'error', 'warning', 'info'];
+    if (!validTypes.includes(type)) type = 'info';
+
+    // Enforce max concurrent toasts
+    const existing = this.container?.querySelectorAll('.toast') || [];
+    if (existing.length >= 5) {
+      const oldest = existing[0];
+      if (oldest) this.dismiss(oldest.id);
+    }
+
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const el = document.createElement('div');
     el.id = id;
     el.className = `toast toast-${type} animate-slide-in-right`;
     el.setAttribute('role', 'status');
-    el.innerHTML = `
-      ${this._iconMap(type)}
-      <span class="flex-1 text-sm font-medium">${this._escapeHtml(message)}</span>
-      <button onclick="toast.dismiss('${id}')" 
-              class="p-1 rounded hover:opacity-70 focus:outline-none focus:ring-2 focus:ring-primary-500"
-              aria-label="Dismiss notification">
-        ${IconLibrary.render('x', 'sm')}
-      </button>
-    `;
-    this.container.appendChild(el);
+    el.setAttribute('aria-live', 'polite');
+
+    const iconSpan = document.createElement('span');
+    iconSpan.innerHTML = this._iconMap(type);
+    iconSpan.className = 'flex-shrink-0';
+
+    const messageSpan = document.createElement('span');
+    messageSpan.className = 'flex-1 text-sm font-medium';
+    messageSpan.textContent = message;
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.className = 'p-1 rounded hover:opacity-70 focus:outline-none focus:ring-2 focus:ring-primary-500';
+    dismissBtn.setAttribute('aria-label', 'Dismiss notification');
+    dismissBtn.innerHTML = this._iconMap('error');
+    dismissBtn.addEventListener('click', () => this.dismiss(id));
+
+    el.appendChild(iconSpan);
+    el.appendChild(messageSpan);
+    el.appendChild(dismissBtn);
+    this.container?.appendChild(el);
 
     // Auto-dismiss
     if (duration > 0) {
@@ -75,6 +97,7 @@ class ToastManager {
    * Dismiss all toasts
    */
   dismissAll() {
+    if (!this.container) return;
     this.container.querySelectorAll('.toast').forEach((el) => {
       el.classList.add('animate-slide-out-right');
       setTimeout(() => el.remove(), 300);

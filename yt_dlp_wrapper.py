@@ -38,7 +38,6 @@ class YtDlpHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "yt-dlp failed", "detail": result.stderr[:500]}).encode())
                 return
 
-            json.loads(result.stdout)  # parse but use stdout directly
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

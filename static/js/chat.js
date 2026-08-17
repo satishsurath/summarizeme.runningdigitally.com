@@ -27,12 +27,13 @@ class ChatUI {
     this.method = options.method || 'POST';
     this.getBody = options.getBody || ((query) => ({ query }));
     this.isLoading = false;
+    this._instanceId = `chat-${Math.random().toString(36).slice(2, 9)}`;
 
     this.init();
   }
 
   init() {
-    // Enter to send, Shift+Enter for newline
+    // Enter to send, Shift-Enter for newline
     this.textarea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -70,6 +71,7 @@ class ChatUI {
     // Show loading indicator
     this.isLoading = true;
     this.updateSendButton();
+    this.setBusy(true);
     this.showLoading();
 
     try {
@@ -93,7 +95,9 @@ class ChatUI {
     } finally {
       this.isLoading = false;
       this.updateSendButton();
-      this.textarea.focus();
+      this.setBusy(false);
+      // Focus textarea after a short delay to ensure DOM is stable
+      requestAnimationFrame(() => this.textarea.focus());
     }
   }
 
@@ -104,15 +108,37 @@ class ChatUI {
     const inner = document.createElement('div');
     inner.className = `max-w-[80%] rounded-lg px-4 py-3 ${this.getMessageClasses(role)}`;
 
-    // Escape HTML to prevent XSS
-    const escapedContent = this.escapeHtml(content);
-
     if (role === 'user') {
-      inner.innerHTML = `<p class="text-white text-sm">${escapedContent}</p>`;
+      // User input: escape HTML to prevent XSS
+      const p = document.createElement('p');
+      p.className = 'text-white text-sm';
+      p.textContent = content;
+      inner.appendChild(p);
     } else if (role === 'assistant') {
-      inner.innerHTML = `<div class="prose prose-sm dark:prose-invert max-w-none text-gray-900 dark:text-gray-100 text-sm">${escapedContent}</div>`;
+      // Assistant response: backend already renders safe HTML via md_safe()
+      // No double-escaping — insert directly as innerHTML
+      const div = document.createElement('div');
+      div.className = 'prose prose-sm dark:prose-invert max-w-none text-gray-900 dark:text-gray-100 text-sm';
+      div.innerHTML = content;
+      inner.appendChild(div);
     } else {
-      inner.innerHTML = `<p class="text-red-600 dark:text-red-400 text-sm flex items-center gap-2"><svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg><span>${escapedContent}</span></p>`;
+      // Error message: escape HTML for safety
+      const p = document.createElement('p');
+      p.className = 'text-red-600 dark:text-red-400 text-sm flex items-center gap-2';
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'w-4 h-4 flex-shrink-0');
+      svg.setAttribute('fill', 'currentColor');
+      svg.setAttribute('viewBox', '0 0 20 20');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('fill-rule', 'evenodd');
+      path.setAttribute('d', 'M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z');
+      path.setAttribute('clip-rule', 'evenodd');
+      svg.appendChild(path);
+      const span = document.createElement('span');
+      span.textContent = content;
+      p.appendChild(svg);
+      p.appendChild(span);
+      inner.appendChild(p);
     }
 
     bubble.appendChild(inner);
@@ -123,7 +149,7 @@ class ChatUI {
   showLoading() {
     const loading = document.createElement('div');
     loading.className = 'flex justify-start mb-4';
-    loading.id = 'chatLoading';
+    loading.dataset.chatLoadingId = this._instanceId;
     loading.innerHTML = `
       <div class="max-w-[80%] rounded-lg px-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
         <div class="flex items-center gap-2">
@@ -140,8 +166,12 @@ class ChatUI {
   }
 
   hideLoading() {
-    const loading = document.getElementById('chatLoading');
+    const loading = this.result.querySelector(`[data-chat-loading-id="${this._instanceId}"]`);
     if (loading) loading.remove();
+  }
+
+  setBusy(busy) {
+    this.result.setAttribute('aria-busy', String(busy));
   }
 
   getMessageClasses(role) {
@@ -155,12 +185,6 @@ class ChatUI {
       default:
         return 'bg-gray-100 dark:bg-gray-800';
     }
-  }
-
-  escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   scrollToBottom() {

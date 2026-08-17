@@ -122,19 +122,6 @@ docker stats
 docker stats app
 ```
 
-## Rollback
-
-```bash
-# Stop current deployment
-docker compose -f docker-compose.prod.yml down
-
-# Start previous image
-docker compose -f docker-compose.prod.yml up -d
-
-# Verify
-curl http://localhost:8000/health
-```
-
 ## Troubleshooting
 
 ### App won't start

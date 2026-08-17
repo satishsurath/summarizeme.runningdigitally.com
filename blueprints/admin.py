@@ -29,9 +29,13 @@ def admin_update_role():
     if not new_role or not user_id:
         abort(400, "Missing parameters")
 
+    ALLOWED_ROLES = {"admin", "member", "reader"}
+    if new_role not in ALLOWED_ROLES:
+        abort(400, f"Invalid role. Must be one of: {', '.join(sorted(ALLOWED_ROLES))}")
+
     session = SessionLocal()
     try:
-        user_obj = session.query(User).get(user_id)
+        user_obj = session.get(User, user_id)
         if not user_obj:
             abort(404, "User not found")
         user_obj.role = new_role
@@ -55,6 +59,12 @@ def admin_add_user():
 
     if "@" not in new_email:
         flash("Invalid email format.", "error")
+        return redirect(url_for("admin_settings"))
+
+    # Validate role against allowed values
+    ALLOWED_ROLES = {"admin", "member", "reader"}
+    if new_role not in ALLOWED_ROLES:
+        flash(f"Invalid role '{new_role}'. Must be one of: {', '.join(sorted(ALLOWED_ROLES))}.", "error")
         return redirect(url_for("admin_settings"))
 
     session = SessionLocal()

@@ -31,6 +31,11 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
   }
 
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+  }
   async function fetchAllTasks() {
     try {
       const res = await fetch("/api/all-tasks");
@@ -68,14 +73,14 @@ document.addEventListener("DOMContentLoaded", () => {
         tableHTML += `
           <tr class="${rowClass} hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-              ${task.task_id}
+              ${escapeHtml(task.task_id)}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-              ${task.type}
+              ${escapeHtml(task.type)}
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
               <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(task.status)}">
-                ${task.status}
+                ${escapeHtml(task.status)}
               </span>
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
@@ -84,7 +89,7 @@ document.addEventListener("DOMContentLoaded", () => {
               </div>
             </td>
             <td class="px-6 py-4 text-sm text-red-500 dark:text-red-400">
-              ${task.errors.length ? task.errors.join(", ") : '-'}
+              ${task.errors.length ? escapeHtml(task.errors.join(", ")) : '-'}
             </td>
           </tr>
         `;

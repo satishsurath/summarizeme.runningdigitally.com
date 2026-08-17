@@ -111,7 +111,6 @@ const IconLibrary = {
   render(name, size = 'md', extraAttrs = {}) {
     const icon = this.icons[name];
     if (!icon) {
-      console.warn(`[IconLibrary] Unknown icon: "${name}"`);
       return '';
     }
     const sizeClass = this.sizes[size] || this.sizes.md;

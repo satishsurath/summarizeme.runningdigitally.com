@@ -60,7 +60,7 @@ def view_summary_v2(summary_id):
     """Fetch SummariesV2 by ID, join its Video, convert MD to HTML, render template."""
     session = SessionLocal()
     try:
-        summary_obj = session.query(SummariesV2).get(summary_id)
+        summary_obj = session.get(SummariesV2, summary_id)
         if not summary_obj:
             return f"SummariesV2 with ID {summary_id} not found.", 404
 
@@ -89,7 +89,7 @@ def view_transcript_v2(video_id):
     """Fetch Video Transcript by ID and render template."""
     session = SessionLocal()
     try:
-        video_obj = session.query(Video).get(video_id)
+        video_obj = session.get(Video, video_id)
         if not video_obj:
             return f"Video with ID {video_id} not found.", 404
 
