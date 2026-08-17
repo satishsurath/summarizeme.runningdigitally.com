@@ -6,6 +6,9 @@ target-version = "py312"
 select = ["E", "F", "I", "W", "B", "SIM", "UP", "RUF"]
 ignore = []
 
+[tool.ruff.format]
+exclude = ["**/*.md"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["app_config", "db", "summarizeme"]
 
