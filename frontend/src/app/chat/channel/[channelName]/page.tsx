@@ -59,7 +59,7 @@ interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
-  timestamp: Date;
+  timestamp: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ export default function ChatPage() {
       id: 0,
       role: "assistant",
       content: `Hello! I can answer questions about "${channelName}". What would you like to know?`,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     },
   ]);
   const [input, setInput] = useState("");
@@ -97,7 +97,7 @@ export default function ChatPage() {
       id: Date.now(),
       role: "user",
       content: input.trim(),
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -110,7 +110,7 @@ export default function ChatPage() {
         id: Date.now() + 1,
         role: "assistant",
         content: response.answer,
-        timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch (err: unknown) {
@@ -118,7 +118,7 @@ export default function ChatPage() {
         id: Date.now() + 1,
         role: "assistant",
         content: `Error: ${err instanceof Error ? err.message : "Failed to get response"}`,
-        timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
@@ -178,7 +178,7 @@ export default function ChatPage() {
               <span className={`text-xs mt-1 block ${
                 msg.role === "user" ? "text-blue-200" : "text-gray-400"
               }`}>
-                {msg.timestamp.toLocaleTimeString()}
+                {new Date(msg.timestamp).toLocaleTimeString(undefined, { hour12: true })}
               </span>
             </div>
             {msg.role === "user" && (

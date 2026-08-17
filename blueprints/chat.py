@@ -76,13 +76,23 @@ def api_chat_channel(channel_name):
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
-        sql_top_chunks = text(chat_channel_sql_templates[selected_view] % {"view": selected_view})
+        raw_sql = chat_channel_sql_templates[selected_view] % {"view": selected_view}
         # Build embedding array literal for PostgreSQL vector type (bypasses parameter binding)
         emb_literal = "ARRAY[" + ",".join(str(x) for x in user_query_emb) + "]::vector"
-        sql_with_emb = sql_top_chunks.compile().string.replace(":q_emb", emb_literal)
-        chunk_rows = session.execute(text(sql_with_emb), {"chan": channel_name}).fetchall()
+        raw_sql = raw_sql.replace(":q_emb", emb_literal)
+        chunk_rows = session.execute(text(raw_sql), {"chan": channel_name}).fetchall()
         if not chunk_rows:
-            final_answer = "No relevant content found for this channel and data type."
+            # Fallback: try transcript embeddings if no summaries exist
+            if selected_view != "public.videos_transcript_no_ts_embedding":
+                tmpl = chat_channel_sql_templates["public.videos_transcript_no_ts_embedding"]
+                raw_sql = tmpl % {"view": "public.videos_transcript_no_ts_embedding"}
+                raw_sql = raw_sql.replace(":q_emb", emb_literal)
+                chunk_rows = session.execute(text(raw_sql), {"chan": channel_name}).fetchall()
+            if not chunk_rows:
+                final_answer = (
+                    "No relevant content found for this channel and data type. "
+                    "Try selecting 'Transcript' or generate summaries first."
+                )
         else:
             context_pieces = []
             unique_videos = {}
@@ -200,7 +210,6 @@ def api_chat_video(video_id):
         data_type,
         model_name,
     )
-
     embeddings_table_map = {
         "comprehensive_notes": "public.summaries_v2_comprehensive_notes_embedding",
         "concise_summary": "public.summaries_v2_concise_summary_embedding",
@@ -208,7 +217,6 @@ def api_chat_video(video_id):
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
         "transcript": "public.videos_transcript_no_ts_embedding",
     }
-
     selected_table = embeddings_table_map.get(data_type, embeddings_table_map["comprehensive_notes"])
     session = SessionLocal()
     try:
@@ -217,11 +225,19 @@ def api_chat_video(video_id):
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
-        sql_top_chunks = text(chat_video_sql_templates[selected_table] % {"view": selected_table})
-        chunk_rows = session.execute(sql_top_chunks, {"q_emb": user_query_emb, "vid": video_id}).fetchall()
+        emb_literal = "ARRAY[" + ",".join(str(x) for x in user_query_emb) + "]::vector"
+        raw_sql = chat_video_sql_templates[selected_table] % {"view": selected_table}
+        raw_sql = raw_sql.replace(":q_emb", emb_literal)
+        chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
 
         if not chunk_rows:
-            final_answer = "No relevant content found for this video and data type."
+            # Fallback: try transcript embeddings if no summaries exist
+            if selected_table != "public.videos_transcript_no_ts_embedding":
+                emb_literal = "ARRAY[" + ",".join(str(x) for x in user_query_emb) + "]::vector"
+                tmpl = chat_video_sql_templates["public.videos_transcript_no_ts_embedding"]
+                raw_sql = tmpl % {"view": "public.videos_transcript_no_ts_embedding"}
+                raw_sql = raw_sql.replace(":q_emb", emb_literal)
+                chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
         else:
             context_pieces = [f"Chunk: {row[0]}" for row in chunk_rows]
             context_for_generation = "\n\n".join(context_pieces)

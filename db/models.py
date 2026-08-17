@@ -32,6 +32,7 @@ class VideoFolder(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     folder_name = Column(String(255))  # This is the human-readable (renamable) name
     original_playlist_id = Column(String(255))  # NEW: stores the immutable YouTube playlist id
+    content_type = Column(String(20), default="playlist")  # "playlist" or "video"
     video_id = Column(String(50), ForeignKey("videos.video_id"))
     last_modified = Column(DateTime, default=datetime.datetime.utcnow)
 
