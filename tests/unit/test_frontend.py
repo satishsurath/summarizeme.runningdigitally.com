@@ -330,3 +330,111 @@ class TestCSSQuality:
     def test_icons_have_consistent_sizes(self, icons_css):
         sizes = re.findall(r"w-(\d+)\s+h-(\d+)", icons_css)
         assert len(sizes) >= 4
+
+
+class TestNotificationDropdown:
+    """Validate notification dropdown component."""
+
+    @pytest.fixture
+    def notifications_js(self):
+        return (STATIC_DIR / "js" / "notifications.js").read_text()
+
+    @pytest.fixture
+    def layout(self):
+        return (TEMPLATES_DIR / "layout.html").read_text()
+
+    @pytest.fixture
+    def components_css(self):
+        return (STATIC_DIR / "css" / "components.css").read_text()
+
+    def test_notifications_js_exists(self):
+        assert (STATIC_DIR / "js" / "notifications.js").exists()
+
+    def test_layout_includes_notifications_js(self, layout):
+        assert "notifications.js" in layout
+
+    def test_bell_button_in_layout(self, layout):
+        assert "notificationBtn" in layout
+        assert 'aria-label="Notifications"' in layout
+
+    def test_notification_dropdown_in_layout(self, layout):
+        assert "notificationDropdown" in layout
+        assert "notificationList" in layout
+        assert "notificationBadge" in layout
+
+    def test_layout_has_status_link(self, layout):
+        assert "status_page" in layout
+
+    def test_layout_has_channels_link(self, layout):
+        assert "Channels" in layout
+
+    def test_polls_api(self, notifications_js):
+        assert "fetch" in notifications_js
+        assert "/api/active-tasks" in notifications_js
+
+    def test_has_polling_interval(self, notifications_js):
+        assert "setInterval" in notifications_js
+
+    def test_escapes_html(self, notifications_js):
+        assert "escapeHtml" in notifications_js or "textContent" in notifications_js
+
+    def test_no_alert_calls(self, notifications_js):
+        assert "alert(" not in notifications_js
+
+    def test_no_console_log(self, notifications_js):
+        assert "console.log" not in notifications_js
+
+    def test_updates_badge(self, notifications_js):
+        assert "notificationBadge" in notifications_js
+
+    def test_progress_bar(self, notifications_js):
+        assert "progress" in notifications_js.lower()
+
+    def test_dropdown_toggle_aria(self, layout):
+        assert "aria-expanded" in layout
+
+    def test_icon_btn_class_exists(self, components_css):
+        assert ".icon-btn" in components_css
+
+    def test_notification_styles_exist(self, components_css):
+        assert ".notification-dropdown" in components_css or "notification" in components_css.lower()
+
+
+class TestNavRedesign:
+    """Validate the Phase 2 navigation redesign."""
+
+    @pytest.fixture
+    def layout(self):
+        return (TEMPLATES_DIR / "layout.html").read_text()
+
+    def test_no_home_link(self, layout):
+        """Home link should be replaced with Channels."""
+        lines = layout.splitlines()
+        for i, line in enumerate(lines):
+            if "url_for('main.index')" in line or "url_for('main.index')" in line:
+                # Check the text content of this nav link
+                context = "\n".join(lines[max(0, i - 2) : i + 3])
+                assert "Home" not in context or "Channels" in context
+
+    def test_channels_link_present(self, layout):
+        assert "Channels" in layout
+
+    def test_admin_link_present(self, layout):
+        assert "Admin" in layout
+
+    def test_status_link_present(self, layout):
+        assert "Status" in layout or "status_page" in layout
+
+    def test_mobile_menu_has_links(self, layout):
+        assert "mobile-menu" in layout
+        assert "Channels" in layout
+        assert "Status" in layout or "status_page" in layout
+        assert "Admin" in layout
+
+    def test_dark_mode_toggle_in_mobile(self, layout):
+        assert "darkModeToggleMobile" in layout
+
+    def test_no_inline_svg_in_nav(self, layout):
+        """Nav links should use text labels, not inline SVGs."""
+        nav_section = layout.split("<!-- Desktop nav links -->")[1].split("<!-- Right side")[0]
+        assert "<svg" not in nav_section

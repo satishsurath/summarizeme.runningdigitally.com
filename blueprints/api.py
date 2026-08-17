@@ -168,7 +168,7 @@ def api_summarize_v2():
                     continue
 
                 transcript = video_obj.transcript_no_ts or ""
-                tokens_no_ts = video_obj.tokens_no_ts or 0
+                tokens_no_ts = int(video_obj.tokens_no_ts) if video_obj.tokens_no_ts else 0  # type: ignore[union-attr]
                 if tokens_no_ts <= 0:
                     tokens_no_ts = len(transcript.split())
 
@@ -223,6 +223,35 @@ def api_summarize_v2_status(task_id):
     if not status:
         return jsonify({"status": "error", "message": "Invalid task ID"}), 404
     return jsonify(status)
+
+
+@api_bp.route("/active-tasks", methods=["GET"])
+def api_active_tasks():
+    """Return list of active (pending/running) tasks for the notification dropdown."""
+    active = []
+    for task_id, status in download_statuses.items():
+        if status.get("status") in ("pending", "in_progress"):
+            active.append(
+                {
+                    "task_id": task_id,
+                    "name": f"Download: {task_id}",
+                    "status": status["status"],
+                    "processed": status.get("processed", 0),
+                    "total": status.get("total", 0),
+                }
+            )
+    for task_id, status in summarize_v2_statuses.items():
+        if status.get("status") in ("pending", "in_progress"):
+            active.append(
+                {
+                    "task_id": task_id,
+                    "name": f"Summarize: {task_id}",
+                    "status": status["status"],
+                    "processed": status.get("processed", 0),
+                    "total": status.get("total", 0),
+                }
+            )
+    return jsonify(active)
 
 
 @api_bp.route("/channels", methods=["GET"])
