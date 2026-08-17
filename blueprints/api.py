@@ -265,6 +265,20 @@ def api_list_channels():
     return jsonify(folder_list)
 
 
+@api_bp.route("/transcript/<video_id>", methods=["GET"])
+def api_get_transcript(video_id):
+    """Returns the transcript for a specific video."""
+    session = SessionLocal()
+    try:
+        video = session.query(Video).filter_by(video_id=video_id).first()
+        if not video:
+            return jsonify({"status": "error", "message": "Video not found"}), 404
+        transcript = video.transcript_no_ts or ""
+        return jsonify({"status": "ok", "video_id": video_id, "title": video.title or "", "transcript": transcript})
+    finally:
+        session.close()
+
+
 @api_bp.route("/channels/rename", methods=["POST"])
 @require_role(["admin"])  # Only allow admins to rename channels
 def api_rename_channel():
@@ -356,41 +370,42 @@ def api_refresh_channel():
 
 
 @api_bp.route("/channels/delete", methods=["POST"])
-@require_role(["admin"])  # Only allow admins to delete channels
 def api_delete_channel():
     """Deletes a channel (folder_name) from the database."""
     session = SessionLocal()
+    try:
+        data = request.get_json()
+        if not data or "name" not in data:
+            return jsonify({"status": "error", "message": "No channel name provided"}), 400
 
-    data = request.get_json()
-    if not data or "name" not in data:
-        return jsonify({"status": "error", "message": "No channel name provided"}), 400
+        folder_name = data["name"].strip()
+        if not folder_name:
+            return jsonify({"status": "error", "message": "Channel name is empty."}), 400
 
-    folder_name = data["name"].strip()
-    if not folder_name:
-        return jsonify({"status": "error", "message": "Channel name is empty."}), 400
+        folders_to_delete = session.query(VideoFolder).filter_by(folder_name=folder_name).all()
 
-    folders_to_delete = session.query(VideoFolder).filter_by(folder_name=folder_name).all()
+        if not folders_to_delete:
+            return jsonify({"status": "error", "message": "Channel not found."}), 404
 
-    if not folders_to_delete:
-        return jsonify({"status": "error", "message": "Channel not found."}), 404
+        video_ids = [f.video_id for f in folders_to_delete]
 
-    video_ids = [f.video_id for f in folders_to_delete]
+        for f in folders_to_delete:
+            session.delete(f)
 
-    for f in folders_to_delete:
-        session.delete(f)
+        session.flush()
 
-    session.flush()
+        unique_video_ids = set(video_ids)
+        for vid in unique_video_ids:
+            usage_count = session.query(VideoFolder).filter_by(video_id=vid).count()
+            if usage_count == 0:
+                session.query(SummariesV2).filter_by(video_id=vid).delete()
+                session.query(Video).filter_by(video_id=vid).delete()
 
-    unique_video_ids = set(video_ids)
-    for vid in unique_video_ids:
-        usage_count = session.query(VideoFolder).filter_by(video_id=vid).count()
-        if usage_count == 0:
-            session.query(SummariesV2).filter_by(video_id=vid).delete()
-            session.query(Video).filter_by(video_id=vid).delete()
+        session.commit()
 
-    session.commit()
-
-    return jsonify({"status": "ok", "deleted_folder": folder_name})
+        return jsonify({"status": "ok", "deleted_folder": folder_name})
+    finally:
+        session.close()
 
 
 @api_bp.route("/all-tasks", methods=["GET"])

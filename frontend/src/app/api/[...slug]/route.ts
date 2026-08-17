@@ -4,14 +4,33 @@ import { type NextRequest } from "next/server";
 
 const BACKEND_URL = process.env.NEXT_API_URL || "http://app:5000";
 
-export async function GET(request: NextRequest) {
+async function forwardRequest(request: NextRequest, method: string) {
   try {
     const url = new URL(request.url);
     const backendPath = `${BACKEND_URL}${url.pathname}`;
-    const resp = await fetch(backendPath, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-    });
+
+    const fetchInit: RequestInit = { method };
+    if (method === "POST") {
+      fetchInit.headers = { "Content-Type": "application/json" };
+      fetchInit.body = JSON.stringify(await request.json());
+    }
+
+    const resp = await fetch(backendPath, fetchInit);
+
+    // Check if the backend is streaming
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.includes("text/event-stream")) {
+      return new Response(resp.body, {
+        status: resp.status,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    // Non-streaming: parse and forward JSON
     const data = await resp.json();
     return Response.json(data, { status: resp.status });
   } catch {
@@ -19,19 +38,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function GET(request: NextRequest) {
+  return forwardRequest(request, "GET");
+}
+
 export async function POST(request: NextRequest) {
-  try {
-    const url = new URL(request.url);
-    const backendPath = `${BACKEND_URL}${url.pathname}`;
-    const body = await request.json();
-    const resp = await fetch(backendPath, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await resp.json();
-    return Response.json(data, { status: resp.status });
-  } catch {
-    return Response.json({ error: "Backend unavailable" }, { status: 502 });
-  }
+  return forwardRequest(request, "POST");
 }

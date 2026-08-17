@@ -5,11 +5,12 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
+import { getTranscript } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
-// Icons
+// Icons (inline SVGs)
 // ---------------------------------------------------------------------------
 
 function SearchIcon({ className }: { className?: string }) {
@@ -47,27 +48,50 @@ function CopyIcon({ className }: { className?: string }) {
 export default function TranscriptPage() {
   const params = useParams();
   const videoId = params.videoId as string;
-
+  const [transcript, setTranscript] = useState("");
+  const [title, setTitle] = useState("");
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Mock data — in production, fetch from API
-  const segments = [
-    { time: "0:00", text: "Welcome to today's video. In this session, we'll be discussing the latest developments in AI and machine learning." },
-    { time: "0:15", text: "First, let's talk about the recent advancements in large language models and their impact on various industries." },
-    { time: "1:30", text: "One of the most exciting applications is in automated content generation, where AI can help create summaries, reports, and more." },
-    { time: "2:45", text: "Another area where AI is making a significant impact is in code generation and software development workflows." },
-    { time: "4:00", text: "Let's dive deeper into how these models work and what makes them so powerful for these tasks." },
-    { time: "5:30", text: "The key insight is that these models have been trained on vast amounts of data, allowing them to understand and generate human-like text." },
-    { time: "7:00", text: "However, there are still challenges to address, particularly around accuracy, bias, and computational efficiency." },
-    { time: "8:30", text: "Looking ahead, I believe we'll see even more sophisticated models that can reason, plan, and interact with the world in more meaningful ways." },
-  ];
+  useEffect(() => {
+    getTranscript(videoId)
+      .then((res) => {
+        if (res.status === "ok" && res.data) {
+          setTitle(res.data.title);
+          setTranscript(res.data.transcript);
+        }
+      })
+      .catch(() => { /* silent */ })
+      .finally(() => setLoading(false));
+  }, [videoId]);
+
+  const segments = useMemo(() => {
+    if (!transcript) return [];
+    const chunks: { time: string; text: string }[] = [];
+    const maxChunkSize = 3000;
+    let offset = 0;
+    let chunkIndex = 0;
+    while (offset < transcript.length) {
+      const end = Math.min(offset + maxChunkSize, transcript.length);
+      let breakPoint = transcript.lastIndexOf(". ", end);
+      if (breakPoint < offset) breakPoint = end;
+      else breakPoint += 2;
+      const text = transcript.slice(offset, breakPoint).trim();
+      if (text) {
+        chunks.push({ time: `${chunkIndex * 4}:00`, text });
+        chunkIndex++;
+      }
+      offset = breakPoint;
+    }
+    return chunks;
+  }, [transcript]);
 
   const filtered = useMemo(() => {
     if (!searchQuery.trim()) return segments;
     const q = searchQuery.toLowerCase();
     return segments.filter((s) => s.text.toLowerCase().includes(q));
-  }, [searchQuery]);
+  }, [searchQuery, segments]);
 
   const handleCopy = async () => {
     const text = segments.map((s) => `[${s.time}] ${s.text}`).join("\n");
@@ -90,6 +114,14 @@ export default function TranscriptPage() {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+        Loading transcript...
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -120,7 +152,7 @@ export default function TranscriptPage() {
       </div>
 
       <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
-        Transcript
+        {title || "Transcript"}
       </h1>
 
       {/* Search */}

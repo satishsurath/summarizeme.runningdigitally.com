@@ -7,7 +7,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { chatVideo } from "@/lib/api";
+import { chatVideoStream } from "@/lib/api";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -59,7 +60,7 @@ interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
-  timestamp: Date;
+  timestamp: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,19 +75,21 @@ export default function ChatVideoPage() {
     {
       id: 0,
       role: "assistant",
-      content: `Hello! I can answer questions about this video. What would you like to know?`,
-      timestamp: new Date(),
+      content: "Hello! I can answer questions about this video. What would you like to know?",
+      timestamp: new Date().toISOString(),
     },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [dataType, setDataType] = useState("comprehensive_notes");
   const [modelName, setModelName] = useState("nemo-qwen3.6-35b-a3b-nvfp4");
+  const [streamingMsgId, setStreamingMsgId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Scroll to bottom on new messages or streaming updates
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, streamingMsgId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,30 +99,72 @@ export default function ChatVideoPage() {
       id: Date.now(),
       role: "user",
       content: input.trim(),
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setLoading(true);
 
+    // Create placeholder for streaming response
+    const streamMsgId = Date.now() + 1;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: streamMsgId,
+        role: "assistant" as const,
+        content: "",
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+    setStreamingMsgId(streamMsgId);
+
     try {
-      const response = await chatVideo(videoId, userMsg.content, dataType, modelName);
-      const botMsg: Message = {
-        id: Date.now() + 1,
-        role: "assistant",
-        content: response.answer,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, botMsg]);
+      await chatVideoStream(
+        videoId,
+        userMsg.content,
+        dataType,
+        modelName,
+        {
+          onDelta: (delta: string) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamMsgId ? { ...m, content: m.content + delta } : m,
+              ),
+            );
+          },
+          onDone: (answer: string) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamMsgId ? { ...m, content: answer } : m,
+              ),
+            );
+            setStreamingMsgId(null);
+          },
+          onError: (error: string) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamMsgId
+                  ? { ...m, content: `Error: ${error}` }
+                  : m,
+              ),
+            );
+            setStreamingMsgId(null);
+          },
+        },
+      );
     } catch (err: unknown) {
-      const errorMsg: Message = {
-        id: Date.now() + 1,
-        role: "assistant",
-        content: `Error: ${err instanceof Error ? err.message : "Failed to get response"}`,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === streamMsgId
+            ? {
+                ...m,
+                content: `Error: ${err instanceof Error ? err.message : "Failed to get response"}`,
+              }
+            : m,
+        ),
+      );
+      setStreamingMsgId(null);
     } finally {
       setLoading(false);
     }
@@ -181,11 +226,11 @@ export default function ChatVideoPage() {
                   : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               }`}
             >
-              <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+              <div className="text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.content) }} />
               <span className={`text-xs mt-1 block ${
                 msg.role === "user" ? "text-blue-200" : "text-gray-400"
               }`}>
-                {msg.timestamp.toLocaleTimeString()}
+                {new Date(msg.timestamp).toLocaleTimeString(undefined, { hour12: true })}
               </span>
             </div>
             {msg.role === "user" && (
