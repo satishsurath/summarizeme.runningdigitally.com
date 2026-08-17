@@ -104,7 +104,7 @@
                 <div class="flex items-center space-x-2">
                     <!-- Notifications dropdown -->
                     <div class="relative">
-                        <button id="notificationBtn" 
+                        <button id="notificationBtn" type="button"
                                 class="icon-btn relative"
                                 aria-label="Notifications"
                                 aria-expanded="false"
@@ -135,7 +135,7 @@
                     </div>
 
                     <!-- Dark mode toggle for desktop -->
-                    <button id="darkModeToggle" 
+                    <button id="darkModeToggle" type="button"
                             class="icon-btn"
                             aria-label="Toggle dark mode">
                         <div class="dark-mode-toggle">
@@ -145,7 +145,7 @@
                     </button>
                     
                     <!-- Mobile menu button -->
-                    <button id="mobile-menu-button" 
+                    <button id="mobile-menu-button" type="button"
                             class="icon-btn md:hidden"
                             aria-label="Open navigation menu"
                             aria-expanded="false"
@@ -168,7 +168,7 @@
                 <a href="{{ url_for('admin.admin_settings') }}" 
                    class="block px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                    role="menuitem">Admin</a>
-                <button id="darkModeToggleMobile" 
+                <button id="darkModeToggleMobile" type="button"
                         class="w-full text-left px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                         aria-label="Toggle dark mode">
                     <div class="dark-mode-toggle">
@@ -199,30 +199,8 @@
     <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
     {% block scripts %}{% endblock %}
 
-    <!-- Dark mode toggle and mobile menu logic -->
+    <!-- Dark mode toggle logic only — mobile menu and notification dropdown handled by notifications.js -->
     <script>
-        // Mobile menu toggle
-        const mobileMenuButton = document.getElementById('mobile-menu-button');
-        const mobileMenu = document.getElementById('mobile-menu');
-        
-        if (mobileMenuButton && mobileMenu) {
-            mobileMenuButton.addEventListener('click', () => {
-                const isOpen = !mobileMenu.classList.contains('hidden');
-                mobileMenu.classList.toggle('hidden');
-                mobileMenuButton.setAttribute('aria-expanded', !isOpen);
-                mobileMenuButton.setAttribute('aria-label', isOpen ? 'Open navigation menu' : 'Close navigation menu');
-            });
-
-            // Close mobile menu on Escape
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && !mobileMenu.classList.contains('hidden')) {
-                    mobileMenu.classList.add('hidden');
-                    mobileMenuButton.setAttribute('aria-expanded', 'false');
-                    mobileMenuButton.focus();
-                }
-            });
-        }
-
         // Dark mode toggle function
         function toggleDarkMode() {
             const isDark = document.documentElement.classList.toggle('dark');

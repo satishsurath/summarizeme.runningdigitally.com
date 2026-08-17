@@ -6,10 +6,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const nextPageBtn = document.getElementById("nextPageBtn");
   const pageInfo = document.getElementById("pageInfo");
   const summarizeBtn = document.getElementById("summarizeBtn");
-  const methodSelect = document.getElementById("methodSelect");
   const summaryStatus = document.getElementById("summaryStatus");
   const sortTitleLink = document.getElementById("sortTitleLink");
   const sortDateLink = document.getElementById("sortDateLink");
+
+  const DEFAULT_MODEL = "nemo-qwen3.6-35b-a3b-nvfp4";
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
 
   let currentPage = 1;
   let pageSize = 50;
@@ -279,19 +285,18 @@ document.addEventListener("DOMContentLoaded", () => {
     videosList.innerHTML = html;
     document.getElementById("videosCardView").innerHTML = cardHtml;
 
-    // "Select All" logic
+    // "Select All" logic (only bind once)
     const selectAllCheckbox = document.getElementById("selectAll");
-    const videoCheckboxes = document.querySelectorAll(".videoCheckbox");
-    selectAllCheckbox.addEventListener("change", () => {
-      const isChecked = selectAllCheckbox.checked;
-      videoCheckboxes.forEach(checkbox => {
-        checkbox.checked = isChecked;
+    if (selectAllCheckbox && !selectAllCheckbox.dataset.listenersBound) {
+      selectAllCheckbox.dataset.listenersBound = '1';
+      selectAllCheckbox.addEventListener("change", () => {
+        const isChecked = selectAllCheckbox.checked;
+        document.querySelectorAll(".videoCheckbox").forEach(checkbox => {
+          checkbox.checked = isChecked;
+        });
       });
-    });
+    }
   }
-
-  // Use single vLLM model
-  const DEFAULT_MODEL = "nemo-qwen3.6-35b-a3b-nvfp4";
 
   // Initialize
   updateSortIndicators();

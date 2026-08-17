@@ -46,7 +46,7 @@ def api_channel_start():
             download_channel_transcripts(channel_url, download_statuses[task_id])
             download_statuses[task_id]["status"] = "completed"
         except Exception as e:
-            logger.error(f"Error in channel download: {e}")
+            logger.error("Error in channel download: %s", e)
             download_statuses[task_id]["status"] = "failed"
             download_statuses[task_id]["errors"].append(str(e))
 
@@ -72,6 +72,12 @@ def api_get_videos(channel_name):
     sort_by = request.args.get("sort_by", "title")
     sort_order = request.args.get("sort_order", "asc").lower()
     filter_str = request.args.get("filter", "").strip().lower()
+
+    # Bounds check
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 100:
+        page_size = 5
 
     session = SessionLocal()
     try:
@@ -133,6 +139,9 @@ def api_summarize_v2():
     if not channel_name or not video_ids:
         return jsonify({"status": "error", "message": "channel_id or video_ids missing"}), 400
 
+    if len(video_ids) > 50:
+        return jsonify({"status": "error", "message": "Maximum 50 videos per request"}), 400
+
     task_id = f"summ_v2_{uuid.uuid4().hex[:8]}"
     summarize_v2_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": len(video_ids), "errors": []}
 
@@ -153,7 +162,7 @@ def api_summarize_v2():
 
                 existing_summary = session.query(SummariesV2).filter_by(video_id=vid, model_name=model_name).first()
                 if existing_summary:
-                    logger.info(f"[SummariesV2] Skipping {vid}, summary already exists for model='{model_name}'.")
+                    logger.info("[SummariesV2] Skipping %s, summary already exists for model=%r.", vid, model_name)
                     processed_count += 1
                     summarize_v2_statuses[task_id]["processed"] = processed_count
                     continue
@@ -198,13 +207,13 @@ def api_summarize_v2():
                 session.add(new_summary)
                 session.commit()
 
-                logger.info(f"[SummariesV2] Inserted for video={vid}, model={model_name}")
+                logger.info("[SummariesV2] Inserted for video=%s, model=%s", vid, model_name)
                 processed_count += 1
                 summarize_v2_statuses[task_id]["processed"] = processed_count
 
             summarize_v2_statuses[task_id]["status"] = "completed"
         except Exception as e:
-            logger.error(f"[SummariesV2] Error: {e}")
+            logger.error("[SummariesV2] Error: %s", e)
             summarize_v2_statuses[task_id]["status"] = "failed"
             summarize_v2_statuses[task_id]["errors"].append(str(e))
         finally:
@@ -300,7 +309,7 @@ def api_rename_channel():
         return jsonify({"status": "ok", "old_name": old_name, "new_name": safe_new_name})
 
     except SQLAlchemyError as e:
-        logger.error(f"Error renaming channel in DB: {e}")
+        logger.error("Error renaming channel in DB: %s", e)
         session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
@@ -326,7 +335,7 @@ def api_refresh_channel():
             )
             .first()
         )
-        logger.debug(f"folder_obj: {folder_obj}")
+        logger.debug("folder_obj: %s", folder_obj)
         if not folder_obj:
             logger.warning("Channel not found")
             return jsonify({"status": "error", "message": "Channel not found"}), 404
@@ -343,7 +352,7 @@ def api_refresh_channel():
                 download_channel_transcripts(channel_url, download_statuses[task_id])
                 download_statuses[task_id]["status"] = "completed"
             except Exception as e:
-                logger.error(f"Error in channel refresh: {e}")
+                logger.error("Error in channel refresh: %s", e)
                 download_statuses[task_id]["status"] = "failed"
                 download_statuses[task_id]["errors"].append(str(e))
 
@@ -437,5 +446,5 @@ def api_vllm_models():
             if "data" in data:
                 models.extend(data["data"])
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Failed to list models from {url}: {e}")
+            logger.warning("Failed to list models from %s: %s", url, e)
     return jsonify({"models": models})

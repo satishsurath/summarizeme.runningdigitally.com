@@ -137,7 +137,8 @@
 .dark .btn-icon:focus {
   box-shadow: 0 0 0 2px #3b82f6, 0 0 0 4px #111827;
 }
-/* ---------- Icon Button ---------- */
+
+/* ---------- Icon Button (notification, dark mode, mobile menu) ---------- */
 
 .icon-btn {
   display: inline-flex;

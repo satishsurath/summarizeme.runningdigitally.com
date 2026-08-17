@@ -122,12 +122,14 @@ document.addEventListener("DOMContentLoaded", () => {
     spanElem.innerHTML = `
       <input type="text" 
              class="rename-input w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
-             value="${currentValue}" />
+             value="" />
     `;
     
     const input = spanElem.querySelector(".rename-input");
+    // Set value safely via property to prevent XSS
+    input.value = currentValue;
     input.focus();
-
+    
     let renameTriggered = false;
 
     input.addEventListener("blur", () => {
@@ -170,11 +172,11 @@ document.addEventListener("DOMContentLoaded", () => {
           editIcon.dataset.channel = data.new_name;
         }
       } else {
-        alert(`Rename error: ${data.message}`);
+        toast.error(`Rename error: ${data.message}`);
         revertSpan(oldName, oldName);
       }
     } catch (err) {
-      alert(`Rename error: ${err}`);
+      toast.error(`Rename error: ${err}`);
       revertSpan(oldName, oldName);
     }
   }
@@ -222,10 +224,10 @@ document.addEventListener("DOMContentLoaded", () => {
           setTimeout(() => liElem.remove(), 300);
         }
       } else {
-        alert(`Error deleting channel: ${data.message || "Unknown error"}`);
+        toast.error(`Error deleting channel: ${data.message || "Unknown error"}`);
       }
     } catch (err) {
-      alert(`Error deleting channel: ${err}`);
+      toast.error(`Error deleting channel: ${err}`);
     }
   }
 
@@ -237,7 +239,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!confirm(`Refresh channel "${channelName}" to check for new videos?`)) {
       return;
     }
-    console.log('refreshing channel', channelName);
     fetch("/api/channels/refresh", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -246,17 +247,16 @@ document.addEventListener("DOMContentLoaded", () => {
     .then(response => response.json())
     .then(data => {
       if (data.status === "initiated") {
-        console.log('refresh initiated', data.task_id);
         // const icon = event.currentTarget.querySelector('svg');
         // icon.classList.add('animate-spin');
         // setTimeout(() => icon.classList.remove('animate-spin'), 1000);
-        alert(`Refresh initiated. Task ID: ${data.task_id}`);
+        toast.show(`Refresh initiated. Task ID: ${data.task_id}`, 'info', 3000);
       } else {
-        alert(`Error refreshing channel: ${data.message}`);
+        toast.error(`Error refreshing channel: ${data.message}`);
       }
     })
     .catch(err => {
-      alert(`Error refreshing channel: ${err}`);
+      toast.error(`Error refreshing channel: ${err}`);
     });
   }
 

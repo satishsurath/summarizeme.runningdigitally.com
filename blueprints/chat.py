@@ -1,6 +1,6 @@
 """Chat blueprint — chat-channel and chat-video routes (page + API)."""
 
-import requests as requests_lib
+import requests
 from flask import Blueprint, jsonify, render_template, request
 from markupsafe import escape as _html_escape
 from sqlalchemy.exc import SQLAlchemyError
@@ -51,8 +51,11 @@ def api_chat_channel(channel_name):
         return jsonify({"answer": "No query provided."}), 400
 
     logger.info(
-        f"Chat-channel query for channel={channel_name}, "
-        f"user_query='{user_query}', data_type='{data_type}', model='{model_name}'"
+        "Chat-channel query for channel=%s, user_query=%r, data_type=%r, model=%r",
+        channel_name,
+        user_query,
+        data_type,
+        model_name,
     )
 
     embeddings_view_map = {
@@ -73,7 +76,6 @@ def api_chat_channel(channel_name):
 
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
-
         sql_top_chunks = text(chat_channel_sql_templates[selected_view] % {"view": selected_view})
         # Build embedding array literal for PostgreSQL vector type (bypasses parameter binding)
         emb_literal = "ARRAY[" + ",".join(str(x) for x in user_query_emb) + "]::vector"
@@ -140,7 +142,7 @@ Please provide a concise answer:
             else:
                 used_videos_html = ""
 
-    except (requests_lib.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
+    except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
         logger.exception("Error during chat-channel flow:")
         return jsonify({"answer": f"Error: {e!s}"}), 500
     finally:
@@ -192,7 +194,11 @@ def api_chat_video(video_id):
     model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
     logger.info(
-        f"Chat-video query for video_id={video_id}, user_query={user_query}, data_type={data_type}, model={model_name}"
+        "Chat-video query for video_id=%s, user_query=%r, data_type=%r, model=%r",
+        video_id,
+        user_query,
+        data_type,
+        model_name,
     )
 
     embeddings_table_map = {
@@ -225,7 +231,7 @@ def api_chat_video(video_id):
 
             if not final_answer:
                 final_answer = "No answer was returned by the model."
-    except (requests_lib.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
+    except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
         logger.exception("Error while handling chat-video")
         final_answer = f"Error: {e}"
     finally:

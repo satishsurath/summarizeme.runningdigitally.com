@@ -17,8 +17,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const dropdown = document.getElementById('notificationDropdown');
   const badge = document.getElementById('notificationBadge');
   const list = document.getElementById('notificationList');
-  const mobileMenuBtn = document.getElementById('mobile-menu-button');
-  const mobileMenu = document.getElementById('mobile-menu');
 
   if (!bellBtn || !dropdown || !list) return;
 
@@ -46,21 +44,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') {
       dropdown.classList.add('hidden');
       bellBtn.setAttribute('aria-expanded', 'false');
-      if (mobileMenu && !mobileMenu.classList.contains('hidden')) {
-        mobileMenu.classList.add('hidden');
-        mobileMenuBtn.setAttribute('aria-expanded', 'false');
-      }
     }
   });
 
-  // Mobile menu toggle
-  if (mobileMenuBtn && mobileMenu) {
-    mobileMenuBtn.addEventListener('click', () => {
-      const isOpen = !mobileMenu.classList.contains('hidden');
-      mobileMenu.classList.toggle('hidden');
-      mobileMenuBtn.setAttribute('aria-expanded', !isOpen);
-    });
-  }
 
   /**
    * Fetch active tasks from API and update the dropdown.
@@ -139,4 +125,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Poll every 5 seconds
   setInterval(fetchActiveTasks, 5000);
+  // Keyboard navigation for notification dropdown (ARIA menu)
+  let focusedIndex = -1;
+  list.addEventListener('keydown', (e) => {
+    const items = [...list.querySelectorAll('[role="menuitem"]')];
+    if (items.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      focusedIndex = Math.min(focusedIndex + 1, items.length - 1);
+      items[focusedIndex]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusedIndex = Math.max(focusedIndex - 1, 0);
+      items[focusedIndex]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusedIndex = 0;
+      items[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusedIndex = items.length - 1;
+      items[focusedIndex]?.focus();
+    }
+  });
 });

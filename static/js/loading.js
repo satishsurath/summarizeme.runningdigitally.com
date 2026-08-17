@@ -35,15 +35,14 @@ class LoadingManager {
     element.dataset.originalText = element.textContent || '';
     element.dataset.originalClassName = element.className || '';
 
-    // Add loading spinner and text
+    // Add loading spinner and text (textContent for loadingText prevents XSS)
     element.innerHTML = `
       <svg class="spinner inline mr-2" fill="none" viewBox="0 0 24 24" aria-hidden="true">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
       </svg>
-      ${loadingText}
     `;
-    element.classList.add('opacity-75', 'cursor-not-allowed');
+    element.appendChild(document.createTextNode(loadingText));
   }
 
   /**
@@ -53,8 +52,13 @@ class LoadingManager {
   end(id) {
     const el = this.activeLoads.get(id);
     if (!el) {
-      // Warn on end() without matching start()
       console.warn(`[LoadingManager] end('${id}') called without matching start()`);
+      return;
+    }
+
+    // Check if element still in DOM
+    if (!document.body.contains(el)) {
+      this.activeLoads.delete(id);
       return;
     }
 
@@ -67,7 +71,6 @@ class LoadingManager {
 
     this.activeLoads.delete(id);
   }
-
   /**
    * Check if an operation is currently loading
    * @param {string} id - Operation ID

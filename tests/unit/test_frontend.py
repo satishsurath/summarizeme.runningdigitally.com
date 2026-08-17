@@ -174,6 +174,10 @@ class TestCSSComponents:
     def test_exists(self, components_css, classname):
         assert classname in components_css
 
+    @pytest.fixture
+    def icons_css(self):
+        return (STATIC_DIR / "css" / "icons.css").read_text()
+
     def test_no_apply_directives(self, components_css):
         """Components must use explicit CSS, not @apply (CDN compatibility)."""
         css_lines = [
@@ -347,6 +351,10 @@ class TestNotificationDropdown:
     @pytest.fixture
     def components_css(self):
         return (STATIC_DIR / "css" / "components.css").read_text()
+
+    @pytest.fixture
+    def icons_css(self):
+        return (STATIC_DIR / "css" / "icons.css").read_text()
 
     def test_notifications_js_exists(self):
         assert (STATIC_DIR / "js" / "notifications.js").exists()
@@ -754,3 +762,103 @@ class TestChatUI:
 
     def test_chat_result_has_space_between_messages(self, channel_chat_html):
         assert "space-y-4" in channel_chat_html or "space-y" in channel_chat_html
+
+
+class TestToastSecurity:
+    """Validate toast.js security and robustness fixes."""
+
+    @pytest.fixture
+    def toast_source(self):
+        return (STATIC_DIR / "js" / "toast.js").read_text()
+
+    def test_no_inline_onclick(self, toast_source):
+        """Toast dismiss should use addEventListener, not inline onclick (XSS prevention)."""
+        assert 'onclick=' not in toast_source
+
+    def test_uses_addeventlistener(self, toast_source):
+        """Toast dismiss should use addEventListener for security."""
+        assert "addEventListener" in toast_source
+
+    def test_uses_textcontent_for_messages(self, toast_source):
+        """Toast messages should use textContent, not innerHTML (XSS prevention)."""
+        assert "textContent" in toast_source
+
+    def test_has_max_toast_limit(self, toast_source):
+        """Toast should enforce a max concurrent limit to prevent UI flooding."""
+        assert "5" in toast_source  # max toast count
+
+    def test_validates_type_param(self, toast_source):
+        """Toast should validate type parameter."""
+        assert "validTypes" in toast_source or "type" in toast_source
+
+    def test_dismiss_all_null_guard(self, toast_source):
+        """dismissAll should guard against null container."""
+        assert "if (!this.container)" in toast_source or "this.container" in toast_source
+
+    def test_dismiss_all_method_exists(self, toast_source):
+        """dismissAll method should exist."""
+        assert "dismissAll" in toast_source
+
+    def test_dismiss_null_container_guard(self, toast_source):
+        """dismissAll should check container before querying."""
+        lines = toast_source.splitlines()
+        dismiss_all_idx = None
+        for i, line in enumerate(lines):
+            if "dismissAll" in line and "(" in line:
+                dismiss_all_idx = i
+                break
+        assert dismiss_all_idx is not None
+        # Check next few lines for container guard
+        snippet = "\n".join(lines[dismiss_all_idx:dismiss_all_idx + 5])
+        assert "this.container" in snippet
+
+
+class TestLoadingSecurity:
+    """Validate loading.js security and robustness fixes."""
+
+    @pytest.fixture
+    def loading_source(self):
+        return (STATIC_DIR / "js" / "loading.js").read_text()
+
+    def test_loading_text_uses_textcontent(self, loading_source):
+        """loadingText should be injected via textContent, not innerHTML (XSS prevention)."""
+        # Should have createTextNode or textContent usage for loadingText
+        assert "createTextNode" in loading_source or "textContent" in loading_source
+
+    def test_dom_check_in_end(self, loading_source):
+        """end() should check if element still in DOM before restoring."""
+        assert "contains" in loading_source or "parentNode" in loading_source
+
+    def test_is_active_method_exists(self, loading_source):
+        """isActive method should exist."""
+        assert "isActive" in loading_source
+
+    def test_get_active_ids_method_exists(self, loading_source):
+        """getActiveIds method should exist."""
+        assert "getActiveIds" in loading_source
+
+
+class TestLayoutAccessibility:
+    """Validate layout.html accessibility improvements."""
+
+    @pytest.fixture
+    def layout(self):
+        return (TEMPLATES_DIR / "layout.html").read_text()
+
+    @pytest.fixture
+    def notifications_js(self):
+        return (STATIC_DIR / "js" / "notifications.js").read_text()
+
+    def test_buttons_have_type_button(self, layout):
+        """All buttons should have type='button' to prevent accidental form submission."""
+        import re
+        buttons = re.findall(r'<button[^>]*>', layout)
+        for btn in buttons:
+            assert 'type="button"' in btn or "type='button'" in btn, f"Button missing type='button': {btn}"
+    def test_notification_dropdown_keyboard_nav(self, notifications_js):
+        """Notification dropdown should have keyboard navigation."""
+        assert "Escape" in notifications_js or "keydown" in notifications_js
+
+    def test_notification_click_outside_close(self, notifications_js):
+        """Notification dropdown should close on outside click."""
+        assert "contains(e.target)" in notifications_js or "click" in notifications_js

@@ -36,6 +36,7 @@
                 <textarea id="userQuery" 
                           rows="3" 
                           placeholder="Enter your question..." 
+                          aria-label="Chat message"
                           class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none mb-4"></textarea>
                 <button id="sendBtn" 
                         class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
@@ -44,7 +45,7 @@
             </div>
 
             <!-- Chat Result -->
-            <div id="chatResult" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 min-h-[300px] max-h-[600px] overflow-y-auto space-y-4">
+            <div id="chatResult" role="log" aria-label="Chat messages" aria-live="polite" aria-busy="false" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 min-h-[300px] max-h-[600px] overflow-y-auto space-y-4">
                 <div class="prose dark:prose-invert max-w-none">
                     <!-- Response will be inserted here -->
                 </div>
