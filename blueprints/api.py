@@ -29,6 +29,15 @@ from db.models import SummariesV2, Video, VideoFolder
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
+def _snapshot_status_items(statuses):
+    """Return a concrete snapshot of task entries for safer top-level iteration.
+
+    This protects against key insertions/removals while building task lists, but
+    nested status dict values may still be updated concurrently by background work.
+    """
+    return list(statuses.items())
+
+
 @api_bp.route("/channel/start", methods=["POST"])
 @require_role(["admin"])  # Only allow admins to start channel downloads
 def api_channel_start():
@@ -238,7 +247,7 @@ def api_summarize_v2_status(task_id):
 def api_active_tasks():
     """Return list of active (pending/running) tasks for the notification dropdown."""
     active = []
-    for task_id, status in download_statuses.items():
+    for task_id, status in _snapshot_status_items(download_statuses):
         if status.get("status") in ("pending", "in_progress"):
             active.append(
                 {
@@ -249,7 +258,7 @@ def api_active_tasks():
                     "total": status.get("total", 0),
                 }
             )
-    for task_id, status in summarize_v2_statuses.items():
+    for task_id, status in _snapshot_status_items(summarize_v2_statuses):
         if status.get("status") in ("pending", "in_progress"):
             active.append(
                 {
@@ -407,7 +416,7 @@ def api_all_tasks():
     """Return a list of all tasks (downloads and summaries) in a single JSON array."""
     all_tasks = []
 
-    for task_id, stat in download_statuses.items():
+    for task_id, stat in _snapshot_status_items(download_statuses):
         all_tasks.append(
             {
                 "task_id": task_id,
@@ -419,7 +428,7 @@ def api_all_tasks():
             }
         )
 
-    for task_id, stat in summarize_v2_statuses.items():
+    for task_id, stat in _snapshot_status_items(summarize_v2_statuses):
         all_tasks.append(
             {
                 "task_id": task_id,

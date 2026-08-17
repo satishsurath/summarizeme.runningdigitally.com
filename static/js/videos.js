@@ -93,9 +93,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   summarizeBtn.addEventListener("click", async () => {
-    const selected = currentVideos
-      .filter(v => document.getElementById(`check_${v.video_id}`).checked)
-      .map(v => v.video_id);
+    const selected = [...new Set(
+      Array.from(document.querySelectorAll(".videoCheckbox:checked"))
+        .map((checkbox) => checkbox.dataset.videoId)
+        .filter(Boolean)
+    )];
 
     if (selected.length === 0) {
       summaryStatus.innerText = "No videos selected.";
@@ -237,7 +239,8 @@ document.addEventListener("DOMContentLoaded", () => {
           <td class="px-6 py-4">
             <input type="checkbox" 
                    class="videoCheckbox w-4 h-4 text-blue-600 border-gray-300 dark:bg-gray-700"
-                   id="check_${v.video_id}" 
+                   id="check_table_${v.video_id}"
+                   data-video-id="${v.video_id}"
             />
           </td>
           <td class="px-6 py-4">
@@ -259,7 +262,8 @@ document.addEventListener("DOMContentLoaded", () => {
             <label class="flex items-start gap-2 cursor-pointer flex-1 min-w-0">
               <input type="checkbox" 
                      class="videoCheckbox w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 mt-1"
-                     id="check_${v.video_id}" 
+                    id="check_card_${v.video_id}"
+                    data-video-id="${v.video_id}"
               />
               <span class="text-sm font-medium text-gray-900 dark:text-gray-100 break-words">${v.title}</span>
             </label>
