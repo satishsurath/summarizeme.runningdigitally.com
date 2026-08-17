@@ -1,19 +1,20 @@
 /**
  * Loading State Manager — SummarizeMe
- * 
+ *
  * Manages loading states for buttons and form elements.
  * Shows spinner + disables element during async operations.
  * Restores original state on completion.
- * 
+ *
  * Usage:
  *   loading.start('download', buttonEl)
  *   try { await doSomething() } finally { loading.end('download') }
- * 
+ *
  * Features:
  * - Unique IDs per operation (prevents conflicts)
  * - Preserves original button text
  * - Supports custom loading text
  * - Multiple concurrent operations
+ * - Warns on end() without matching start()
  */
 class LoadingManager {
   constructor() {
@@ -28,12 +29,12 @@ class LoadingManager {
    */
   start(id, element, loadingText = 'Loading...') {
     if (!element) return;
-    
+
     this.activeLoads.set(id, element);
     element.disabled = true;
     element.dataset.originalText = element.textContent || '';
     element.dataset.originalClassName = element.className || '';
-    
+
     // Add loading spinner and text
     element.innerHTML = `
       <svg class="spinner inline mr-2" fill="none" viewBox="0 0 24 24" aria-hidden="true">
@@ -51,15 +52,19 @@ class LoadingManager {
    */
   end(id) {
     const el = this.activeLoads.get(id);
-    if (!el) return;
-    
+    if (!el) {
+      // Warn on end() without matching start()
+      console.warn(`[LoadingManager] end('${id}') called without matching start()`);
+      return;
+    }
+
     // Restore original text and classes
     el.disabled = false;
     el.textContent = el.dataset.originalText || el.textContent;
     el.className = el.dataset.originalClassName || '';
     delete el.dataset.originalText;
     delete el.dataset.originalClassName;
-    
+
     this.activeLoads.delete(id);
   }
 
