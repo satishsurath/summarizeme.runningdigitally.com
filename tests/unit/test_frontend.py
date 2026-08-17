@@ -686,3 +686,71 @@ class TestVideoThumbnails:
 
     def test_thumbnail_placeholder(self, thumbnails_js):
         assert "placeholder" in thumbnails_js.lower() or "fallback" in thumbnails_js.lower()
+
+
+class TestChatUI:
+    """Validate the Chat UI bubble system."""
+
+    @pytest.fixture
+    def chat_js(self):
+        return (STATIC_DIR / "js" / "chat.js").read_text()
+
+    @pytest.fixture
+    def channel_chat_html(self):
+        return (TEMPLATES_DIR / "channel_chat.html").read_text()
+
+    @pytest.fixture
+    def video_chat_html(self):
+        return (TEMPLATES_DIR / "video_chat.html").read_text()
+
+    @pytest.fixture
+    def layout(self):
+        return (TEMPLATES_DIR / "layout.html").read_text()
+
+    def test_chat_js_exists(self):
+        assert (STATIC_DIR / "js" / "chat.js").exists()
+
+    def test_layout_includes_chat_js(self, layout):
+        assert "chat.js" in layout
+
+    def test_chat_ui_class_exists(self, chat_js):
+        assert "class ChatUI" in chat_js
+
+    def test_chat_has_send_message(self, chat_js):
+        assert "sendMessage" in chat_js
+
+    def test_chat_has_add_message(self, chat_js):
+        assert "addMessage" in chat_js
+
+    def test_chat_has_loading_indicator(self, chat_js):
+        assert "showLoading" in chat_js
+
+    def test_chat_has_error_handling(self, chat_js):
+        assert "addMessage" in chat_js and "error" in chat_js.lower()
+
+    def test_chat_uses_escapexml(self, chat_js):
+        assert "escapeHtml" in chat_js or "textContent" in chat_js
+
+    def test_chat_no_alert_calls(self, chat_js):
+        assert "alert(" not in chat_js
+
+    def test_chat_no_console_log(self, chat_js):
+        assert "console.log" not in chat_js
+
+    def test_chat_enter_to_send(self, chat_js):
+        assert "Enter" in chat_js
+
+    def test_chat_shift_enter_newline(self, chat_js):
+        assert "shiftKey" in chat_js
+
+    def test_channel_chat_uses_chat_ui(self, channel_chat_html):
+        assert "ChatUI" in channel_chat_html
+
+    def test_video_chat_uses_chat_ui(self, video_chat_html):
+        assert "ChatUI" in video_chat_html
+
+    def test_chat_result_has_scroll(self, channel_chat_html):
+        assert "overflow-y-auto" in channel_chat_html or "overflow" in channel_chat_html
+
+    def test_chat_result_has_space_between_messages(self, channel_chat_html):
+        assert "space-y-4" in channel_chat_html or "space-y" in channel_chat_html
