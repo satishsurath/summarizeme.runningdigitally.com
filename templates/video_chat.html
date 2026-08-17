@@ -1,3 +1,4 @@
+{% from 'macros.html' import render_icon %}
 {% extends "layout.html" %}
 {% block content %}
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -29,10 +30,7 @@
         <button onclick="toggleTranscript()" 
                 class="w-full flex items-center justify-between px-6 py-4 bg-white dark:bg-gray-800 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
             <span class="text-lg font-medium text-gray-900 dark:text-white">Transcript</span>
-            <svg id="transcriptArrow" class="h-5 w-5 text-gray-500 transform transition-transform duration-200" 
-                 fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-            </svg>
+            {{ render_icon('chevronDown', 'md', 'text-gray-500 transform transition-transform duration-200', 'transcriptArrow') }}
         </button>
         <div id="transcriptContent" class="hidden mt-2">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">

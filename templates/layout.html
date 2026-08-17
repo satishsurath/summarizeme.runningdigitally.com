@@ -1,3 +1,4 @@
+{% from 'macros.html' import render_icon %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -108,9 +109,7 @@
                                 aria-label="Notifications"
                                 aria-expanded="false"
                                 aria-controls="notificationDropdown">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-                            </svg>
+                            {{ render_icon('bell', 'md') }}
                             <span id="notificationBadge" class="hidden absolute -top-1 -right-1 w-4 h-4 bg-primary-500 rounded-full text-xs text-white flex items-center justify-center"></span>
                         </button>
                         <!-- Notification Dropdown -->
@@ -140,18 +139,8 @@
                             class="icon-btn"
                             aria-label="Toggle dark mode">
                         <div class="dark-mode-toggle">
-                            <!-- Sun icon -->
-                            <svg class="sun w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
-                                </path>
-                            </svg>
-                            <!-- Moon icon -->
-                            <svg class="moon w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z">
-                                </path>
-                            </svg>
+                            {{ render_icon('sun', 'lg', extra_class='sun') }}
+                            {{ render_icon('moon', 'lg', extra_class='moon') }}
                         </div>
                     </button>
                     
@@ -161,9 +150,7 @@
                             aria-label="Open navigation menu"
                             aria-expanded="false"
                             aria-controls="mobile-menu">
-                        <svg class="w-6 h-6 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                        </svg>
+                        {{ render_icon('menu', 'lg', extra_class='text-gray-600 dark:text-gray-300') }}
                     </button>
                 </div>
             </div>
@@ -185,16 +172,8 @@
                         class="w-full text-left px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                         aria-label="Toggle dark mode">
                     <div class="dark-mode-toggle">
-                        <svg class="sun w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                  d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
-                            </path>
-                        </svg>
-                        <svg class="moon w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z">
-                            </path>
-                        </svg>
+                        {{ render_icon('sun', 'md', extra_class='sun') }}
+                        {{ render_icon('moon', 'md', extra_class='moon') }}
                     </div>
                     <span>Dark mode</span>
                 </button>
@@ -215,6 +194,7 @@
     <script src="{{ url_for('static', filename='js/loading.js') }}"></script>
     <script src="{{ url_for('static', filename='js/index.js') }}"></script>
     <script src="{{ url_for('static', filename='js/notifications.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/icons.js') }}"></script>
     {% block scripts %}{% endblock %}
 
     <!-- Dark mode toggle and mobile menu logic -->
