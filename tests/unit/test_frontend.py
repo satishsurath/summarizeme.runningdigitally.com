@@ -568,3 +568,64 @@ class TestIconSystem:
             if line.strip() and not line.strip().startswith("/*") and not line.strip().startswith("*")
         ]
         assert not any("@apply" in line for line in css_lines)
+
+
+class TestMobileResponsiveness:
+    """Validate mobile responsiveness improvements."""
+
+    @pytest.fixture
+    def videos_html(self):
+        return (TEMPLATES_DIR / "videos.html").read_text()
+
+    @pytest.fixture
+    def admin_html(self):
+        return (TEMPLATES_DIR / "admin_settings.html").read_text()
+
+    @pytest.fixture
+    def index_html(self):
+        return (TEMPLATES_DIR / "index.html").read_text()
+
+    @pytest.fixture
+    def channel_chat_html(self):
+        return (TEMPLATES_DIR / "channel_chat.html").read_text()
+
+    @pytest.fixture
+    def videos_js(self):
+        return (STATIC_DIR / "js" / "videos.js").read_text()
+
+    def test_videos_has_card_view(self, videos_html):
+        assert "videosCardView" in videos_html
+
+    def test_videos_table_hidden_on_mobile(self, videos_html):
+        assert "hidden sm:block" in videos_html or "sm:hidden" in videos_html
+
+    def test_videos_card_view_responsive(self, videos_html):
+        # Card view should use sm:hidden to hide on desktop
+        assert "sm:hidden" in videos_html
+
+    def test_videos_js_renders_cards(self, videos_js):
+        assert "videosCardView" in videos_js
+
+    def test_admin_has_card_view(self, admin_html):
+        assert "sm:hidden" in admin_html or "card" in admin_html.lower()
+
+    def test_admin_table_responsive(self, admin_html):
+        assert "hidden sm:block" in admin_html or "overflow-x-auto" in admin_html
+
+    def test_index_has_legend_toggle(self, index_html):
+        assert "Legend" in index_html
+
+    def test_channel_chat_responsive_grid(self, channel_chat_html):
+        assert "grid-cols-1" in channel_chat_html
+        assert "lg:grid-cols-3" in channel_chat_html
+
+    def test_layout_mobile_menu(self):
+        layout = (TEMPLATES_DIR / "layout.html").read_text()
+        assert "mobile-menu" in layout
+        assert "md:hidden" in layout or "sm:hidden" in layout
+
+    def test_no_horizontal_scroll_traps(self):
+        """Pages should not have overflow-x: hidden that traps horizontal scroll."""
+        for name in ["index", "channel_chat", "video_chat", "videos", "admin_settings", "status"]:
+            html = (TEMPLATES_DIR / f"{name}.html").read_text()
+            assert "overflow-x: hidden" not in html

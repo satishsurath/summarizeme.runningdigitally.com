@@ -36,8 +36,8 @@
             {% endfor %}
         {% endif %}
 
-        <!-- Users Table -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden mb-8">
+        <!-- Users Table (desktop only) -->
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden mb-8 hidden sm:block">
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead class="bg-gray-50 dark:bg-gray-700">
@@ -104,6 +104,52 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+
+        <!-- Users Cards (mobile only) -->
+        <div class="sm:hidden space-y-4 mb-8">
+            {% for user in users %}
+            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <span class="text-xs text-gray-500 dark:text-gray-400">ID</span>
+                        <p class="text-sm font-medium text-gray-900 dark:text-gray-300">{{ user.id }}</p>
+                    </div>
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                {% if user.role == 'admin' %}
+                                    bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200
+                                {% elif user.role == 'member' %}
+                                    bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200
+                                {% else %}
+                                    bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200
+                                {% endif %}">
+                        {{ user.role }}
+                    </span>
+                </div>
+                <div class="mb-3">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">Email</span>
+                    <p class="text-sm text-gray-900 dark:text-gray-300 break-all">{{ user.email }}</p>
+                </div>
+                <form action="{{ url_for('admin.admin_update_role') }}" method="POST" class="flex items-center space-x-2">
+                    <input type="hidden" name="user_id" value="{{ user.id }}">
+                    <select name="role"
+                            class="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm 
+                                   focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white 
+                                   text-sm">
+                        <option value="admin" {% if user.role == "admin" %}selected{% endif %}>admin</option>
+                        <option value="member" {% if user.role == "member" %}selected{% endif %}>member</option>
+                        <option value="reader" {% if user.role == "reader" %}selected{% endif %}>reader</option>
+                    </select>
+                    <button type="submit" 
+                            class="inline-flex items-center px-3 py-2 border border-transparent text-sm 
+                                   leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 
+                                   focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 
+                                   dark:focus:ring-offset-gray-800 transition-colors whitespace-nowrap">
+                        Update
+                    </button>
+                </form>
+            </div>
+            {% endfor %}
         </div>
 
         <!-- Add New User Form -->

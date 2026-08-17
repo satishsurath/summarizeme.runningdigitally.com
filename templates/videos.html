@@ -22,8 +22,8 @@
     </div>
   </div>
 
-  <!-- Videos Table -->
-  <div class="overflow-x-auto bg-white dark:bg-gray-800 rounded-lg shadow">
+  <!-- Videos Table (desktop only, hidden on mobile) -->
+  <div class="hidden sm:block overflow-x-auto bg-white dark:bg-gray-800 rounded-lg shadow">
     <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
       <thead class="bg-gray-50 dark:bg-gray-700">
         <tr>
@@ -62,6 +62,9 @@
       </tbody>
     </table>
   </div>
+
+  <!-- Videos Card View (mobile only, hidden on sm: and up) -->
+  <div id="videosCardView" class="sm:hidden space-y-4"></div>
 
   <!-- Pagination Controls -->
   <div class="mt-6 flex items-center justify-between">

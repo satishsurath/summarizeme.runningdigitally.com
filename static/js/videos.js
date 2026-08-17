@@ -138,6 +138,11 @@ document.addEventListener("DOMContentLoaded", () => {
         </td>
       </tr>
     `;
+    document.getElementById("videosCardView").innerHTML = `
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-center text-gray-500 dark:text-gray-400">
+        <div class="animate-pulse">Loading...</div>
+      </div>
+    `;
 
     try {
       const res = await fetch(url);
@@ -167,6 +172,11 @@ document.addEventListener("DOMContentLoaded", () => {
           </td>
         </tr>
       `;
+      document.getElementById("videosCardView").innerHTML = `
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-center text-red-500 dark:text-red-400">
+          Error loading videos: ${err}
+        </div>
+      `;
     }
   }
 
@@ -179,22 +189,26 @@ document.addEventListener("DOMContentLoaded", () => {
           </td>
         </tr>
       `;
+      document.getElementById("videosCardView").innerHTML = `
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-center text-gray-500 dark:text-gray-400">
+          No videos found.
+        </div>
+      `;
       return;
     }
 
     let html = "";
+    let cardHtml = "";
     videos.forEach(v => {
       let summariesList = "";
       if (v.summaries_v2 && v.summaries_v2.length > 0) {
         summariesList = v.summaries_v2.map(s => {
           return `
-            <div class="mb-1">
-              <a href="/summaries_v2/${s.id}" 
-                 class="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
-                 target="_blank">
-                ${s.model_name}
-              </a>
-            </div>
+            <a href="/summaries_v2/${s.id}" 
+               class="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+               target="_blank">
+              ${s.model_name}
+            </a>
           `;
         }).join("");
       } else {
@@ -212,7 +226,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
           <td class="px-6 py-4">
             <input type="checkbox" 
-                   class="videoCheckbox w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                   class="videoCheckbox w-4 h-4 text-blue-600 border-gray-300 dark:bg-gray-700"
                    id="check_${v.video_id}" 
             />
           </td>
@@ -222,9 +236,38 @@ document.addEventListener("DOMContentLoaded", () => {
           <td class="px-6 py-4 text-sm">${transcriptLink}</td>
         </tr>
       `;
+
+      cardHtml += `
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+          <div class="flex items-start justify-between gap-2 mb-3">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" 
+                     class="videoCheckbox w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                     id="check_${v.video_id}" 
+              />
+              <span class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">${v.title}</span>
+            </label>
+          </div>
+          <div class="space-y-2 text-sm">
+            <div>
+              <span class="font-medium text-gray-500 dark:text-gray-400">Date:</span>
+              <span class="ml-2 text-gray-900 dark:text-gray-100">${v.upload_date}</span>
+            </div>
+            <div>
+              <span class="font-medium text-gray-500 dark:text-gray-400">Summaries:</span>
+              <span class="ml-2">${summariesList}</span>
+            </div>
+            <div>
+              <span class="font-medium text-gray-500 dark:text-gray-400">Transcript:</span>
+              <span class="ml-2">${transcriptLink}</span>
+            </div>
+          </div>
+        </div>
+      `;
     });
 
     videosList.innerHTML = html;
+    document.getElementById("videosCardView").innerHTML = cardHtml;
 
     // "Select All" logic
     const selectAllCheckbox = document.getElementById("selectAll");
