@@ -261,7 +261,7 @@ document.addEventListener("DOMContentLoaded", () => {
                      class="videoCheckbox w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 mt-1"
                      id="check_${v.video_id}" 
               />
-              <span class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">${v.title}</span>
+              <span class="text-sm font-medium text-gray-900 dark:text-gray-100 break-words">${v.title}</span>
             </label>
           </div>
           <div class="space-y-2 text-sm">
