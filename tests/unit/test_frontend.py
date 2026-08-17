@@ -629,3 +629,60 @@ class TestMobileResponsiveness:
         for name in ["index", "channel_chat", "video_chat", "videos", "admin_settings", "status"]:
             html = (TEMPLATES_DIR / f"{name}.html").read_text()
             assert "overflow-x: hidden" not in html
+
+
+class TestVideoThumbnails:
+    """Validate video thumbnail system."""
+
+    @pytest.fixture
+    def thumbnails_js(self):
+        return (STATIC_DIR / "js" / "thumbnails.js").read_text()
+
+    @pytest.fixture
+    def layout(self):
+        return (TEMPLATES_DIR / "layout.html").read_text()
+
+    @pytest.fixture
+    def videos_html(self):
+        return (TEMPLATES_DIR / "videos.html").read_text()
+
+    @pytest.fixture
+    def channel_chat_html(self):
+        return (TEMPLATES_DIR / "channel_chat.html").read_text()
+
+    def test_thumbnails_js_exists(self):
+        assert (STATIC_DIR / "js" / "thumbnails.js").exists()
+
+    def test_layout_includes_thumbnails_js(self, layout):
+        assert "thumbnails.js" in layout
+
+    def test_thumbnails_has_get_url(self, thumbnails_js):
+        assert "getUrl" in thumbnails_js
+
+    def test_thumbnails_has_get_best_url(self, thumbnails_js):
+        assert "getBestUrl" in thumbnails_js
+
+    def test_thumbnails_has_lazy_loading(self, thumbnails_js):
+        assert "IntersectionObserver" in thumbnails_js
+
+    def test_thumbnails_has_create(self, thumbnails_js):
+        assert "create(" in thumbnails_js
+
+    def test_thumbnails_url_format(self, thumbnails_js):
+        assert "img.youtube.com" in thumbnails_js
+
+    def test_thumbnails_no_console_log(self, thumbnails_js):
+        assert "console.log" not in thumbnails_js
+
+    def test_videos_has_thumbnail_in_table(self):
+        videos_js = (STATIC_DIR / "js" / "videos.js").read_text()
+        assert "ThumbnailSystem" in videos_js
+
+    def test_channel_chat_has_thumbnail(self, channel_chat_html):
+        assert "img.youtube.com" in channel_chat_html or "thumbnail" in channel_chat_html.lower()
+
+    def test_thumbnail_lazy_loading(self, channel_chat_html):
+        assert "loading=" in channel_chat_html.lower()
+
+    def test_thumbnail_placeholder(self, thumbnails_js):
+        assert "placeholder" in thumbnails_js.lower() or "fallback" in thumbnails_js.lower()

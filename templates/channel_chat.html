@@ -76,6 +76,12 @@
                                 {{ render_icon('chat', 'md') }}
                             </a>
                         </div>
+                            <!-- Thumbnail -->
+                            <img src="https://img.youtube.com/vi/{{ vid.video_id }}/mqdefault.jpg" 
+                                 alt="Thumbnail" 
+                                 class="w-16 h-9 rounded object-cover flex-shrink-0"
+                                 loading="lazy"
+                                 onerror="this.style.display='none'">
                         <span class="flex-1 text-sm">{{ vid.title }}</span>
                     </li>
                     {% endfor %}
