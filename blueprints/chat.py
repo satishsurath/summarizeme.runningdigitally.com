@@ -93,7 +93,8 @@ def api_chat_channel(channel_name):
                     "No relevant content found for this channel and data type. "
                     "Try selecting 'Transcript' or generate summaries first."
                 )
-        else:
+
+        if chunk_rows and not final_answer:
             context_pieces = []
             unique_videos = {}
 
@@ -133,7 +134,7 @@ Please provide a concise answer:
     <a href="https://www.youtube.com/watch?v={safe_vid_id}" target="_blank">
         <svg style="fill:#333; height:1em; width:1em;" version="1.1"
              xmlns="http://www.w3.org/2000/svg"
-             xmlns:xlink="http://www.w3.org/1999/xlink"
+             xmlns:xlink="http://www.w3.org/2000/xlink"
              viewBox="0 0 48 48" xml:space="preserve">
             <use href="#icon-summarizeYouTube" xlink:href="#icon-summarizeYouTube"></use>
         </svg>
@@ -165,7 +166,6 @@ Please provide a concise answer:
     return jsonify({"answer": final_answer_html})
 
 
-@chat_bp.route("/chat-video/<video_id>", methods=["GET"])
 def chat_video_page(video_id):
     """Renders a page that allows chatting with a single video's content."""
     session = SessionLocal()
@@ -219,6 +219,7 @@ def api_chat_video(video_id):
     }
     selected_table = embeddings_table_map.get(data_type, embeddings_table_map["comprehensive_notes"])
     session = SessionLocal()
+    final_answer = ""
     try:
         user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL)
 
@@ -238,7 +239,13 @@ def api_chat_video(video_id):
                 raw_sql = tmpl % {"view": "public.videos_transcript_no_ts_embedding"}
                 raw_sql = raw_sql.replace(":q_emb", emb_literal)
                 chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
-        else:
+            if not chunk_rows:
+                final_answer = (
+                    "No relevant content found for this video and data type. "
+                    "Try selecting 'Transcript' or generate summaries first."
+                )
+
+        if chunk_rows and not final_answer:
             context_pieces = [f"Chunk: {row[0]}" for row in chunk_rows]
             context_for_generation = "\n\n".join(context_pieces)
 
