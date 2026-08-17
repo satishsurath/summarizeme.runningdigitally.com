@@ -125,6 +125,7 @@ def ensure_destination_table(cur, conn, table_name):
 def upsert_embedding(cur, conn, table_name, source_id, source_table, source_column, chunk_order, content, embedding):
     """Insert or update an embedding."""
     from psycopg2 import sql
+
     table_only = table_name.split(".")[-1] if "." in table_name else table_name
     cur.execute(
         sql.SQL(
