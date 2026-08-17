@@ -215,6 +215,94 @@ def vllm_generate_chunk(model_name, prompt, client=None):
     return data.strip() if data else ""
 
 
+def vllm_generate_stream(model_name: str, prompt: str):
+    """
+    Generate text via vLLM backend with streaming (SSE) support.
+    Yields (chunk_text: str, done: bool) tuples.
+    chunk_text is the new text fragment; done is True on the final chunk.
+    """
+    from app_config import shared_logger
+
+    llm_url = VLLM_GEN_URL
+
+    if not _HAS_OPENAI:
+        shared_logger.error("openai SDK not installed")
+        yield "", True
+        return
+
+    try:
+        chat_client = _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
+        stream = chat_client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4096,
+            stream=True,
+        )
+        full_text = ""
+        for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            delta_content = delta.content if delta and delta.content else ""
+            full_text += delta_content
+            yield delta_content, False
+        yield "", True
+    except Exception:
+        # Fallback to httpx streaming for vLLM compatibility
+        try:
+            import json
+
+            import httpx
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 4096,
+                "stream": True,
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {_VLLM_GEN_API_KEY}",
+            }
+            with httpx.stream(
+                "POST",
+                f"{llm_url}/v1/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=120,
+            ) as resp:
+                if resp.status_code != 200:
+                    shared_logger.error(
+                        "vLLM streaming HTTP error: %s %s",
+                        resp.status_code,
+                        resp.text[:200],
+                    )
+                    yield "", True
+                    return
+                full_text = ""
+                for line in resp.iter_lines():
+                    text = line  # httpx iter_lines returns str, not bytes
+                    if not text or text.startswith(":"):
+                        continue
+                    if text.startswith("data: "):
+                        data_str = text[6:]
+                        if data_str == "[DONE]":
+                            yield "", True
+                            return
+                        try:
+                            data = json.loads(data_str)
+                            delta = (
+                                data.get("choices", [{}])[0]
+                                .get("delta", {})
+                            )
+                            delta_content = delta.get("content", "") or ""
+                            full_text += delta_content
+                            yield delta_content, False
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            continue
+                yield "", True
+        except httpx.HTTPError:
+            shared_logger.exception("vLLM streaming httpx fallback failed")
+            yield "", True
+
+
 def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-v1.5"):
     """
     Generate embedding via vLLM backend.

@@ -6,7 +6,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { listChannels, startChannelDownload } from "@/lib/api";
+import { listChannels, startChannelDownload, renameChannel, deleteChannel, refreshChannel } from "@/lib/api";
 import type { ChannelMeta } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
@@ -265,27 +265,40 @@ export default function HomePage() {
 
   // Rename handler
   const handleRename = async (oldName: string, newName: string) => {
-    const res = await listChannels();
-    const updated = res.map((c) =>
-      c.folder_name === oldName ? { ...c, folder_name: newName } : c,
-    );
-    setChannels(updated);
-    showToast(`Renamed to "${newName}"`, "success");
+    const res = await renameChannel(oldName, newName);
+    if (res.status === "ok") {
+      setChannels((prev) =>
+        prev.map((c) =>
+          c.folder_name === oldName ? { ...c, folder_name: newName } : c,
+        ),
+      );
+      showToast(`Renamed to "${newName}"`, "success");
+    } else {
+      showToast(res.message || "Rename failed", "error");
+    }
   };
 
   // Delete handler
   const handleDelete = async (name: string) => {
     if (!confirm(`Delete channel "${name}"?`)) return;
-    setChannels((prev) => prev.filter((c) => c.folder_name !== name));
-    showToast(`Deleted "${name}"`, "success");
+    const res = await deleteChannel(name);
+    if (res.status === "ok") {
+      setChannels((prev) => prev.filter((c) => c.folder_name !== name));
+      showToast(`Deleted "${name}"`, "success");
+    } else {
+      showToast(res.message || "Delete failed", "error");
+    }
   };
 
   // Refresh handler
   const handleRefresh = async (name: string) => {
     try {
-      const res = await listChannels();
-      showToast(`Refreshed "${name}"`, "info");
-      setChannels(res);
+      const res = await refreshChannel(name);
+      if (res.status === "ok") {
+        showToast(`Refresh started for "${name}"`, "info");
+      } else {
+        showToast(res.message || "Refresh failed", "error");
+      }
     } catch {
       showToast(`Failed to refresh "${name}"`, "error");
     }
