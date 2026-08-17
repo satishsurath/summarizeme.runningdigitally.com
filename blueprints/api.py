@@ -29,6 +29,15 @@ from db.models import SummariesV2, Video, VideoFolder
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
+def _snapshot_status_items(statuses):
+    """Return a concrete snapshot of task entries for safer top-level iteration.
+
+    This protects against key insertions/removals while building task lists, but
+    nested status dict values may still be updated concurrently by background work.
+    """
+    return list(statuses.items())
+
+
 @api_bp.route("/channel/start", methods=["POST"])
 @require_role(["admin"])  # Only allow admins to start channel downloads
 def api_channel_start():
@@ -46,7 +55,7 @@ def api_channel_start():
             download_channel_transcripts(channel_url, download_statuses[task_id])
             download_statuses[task_id]["status"] = "completed"
         except Exception as e:
-            logger.error(f"Error in channel download: {e}")
+            logger.error("Error in channel download: %s", e)
             download_statuses[task_id]["status"] = "failed"
             download_statuses[task_id]["errors"].append(str(e))
 
@@ -72,6 +81,12 @@ def api_get_videos(channel_name):
     sort_by = request.args.get("sort_by", "title")
     sort_order = request.args.get("sort_order", "asc").lower()
     filter_str = request.args.get("filter", "").strip().lower()
+
+    # Bounds check
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 100:
+        page_size = 5
 
     session = SessionLocal()
     try:
@@ -133,6 +148,9 @@ def api_summarize_v2():
     if not channel_name or not video_ids:
         return jsonify({"status": "error", "message": "channel_id or video_ids missing"}), 400
 
+    if len(video_ids) > 50:
+        return jsonify({"status": "error", "message": "Maximum 50 videos per request"}), 400
+
     task_id = f"summ_v2_{uuid.uuid4().hex[:8]}"
     summarize_v2_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": len(video_ids), "errors": []}
 
@@ -153,7 +171,7 @@ def api_summarize_v2():
 
                 existing_summary = session.query(SummariesV2).filter_by(video_id=vid, model_name=model_name).first()
                 if existing_summary:
-                    logger.info(f"[SummariesV2] Skipping {vid}, summary already exists for model='{model_name}'.")
+                    logger.info("[SummariesV2] Skipping %s, summary already exists for model=%r.", vid, model_name)
                     processed_count += 1
                     summarize_v2_statuses[task_id]["processed"] = processed_count
                     continue
@@ -168,7 +186,7 @@ def api_summarize_v2():
                     continue
 
                 transcript = video_obj.transcript_no_ts or ""
-                tokens_no_ts = video_obj.tokens_no_ts or 0
+                tokens_no_ts = int(video_obj.tokens_no_ts) if video_obj.tokens_no_ts else 0  # type: ignore[union-attr]
                 if tokens_no_ts <= 0:
                     tokens_no_ts = len(transcript.split())
 
@@ -198,13 +216,13 @@ def api_summarize_v2():
                 session.add(new_summary)
                 session.commit()
 
-                logger.info(f"[SummariesV2] Inserted for video={vid}, model={model_name}")
+                logger.info("[SummariesV2] Inserted for video=%s, model=%s", vid, model_name)
                 processed_count += 1
                 summarize_v2_statuses[task_id]["processed"] = processed_count
 
             summarize_v2_statuses[task_id]["status"] = "completed"
         except Exception as e:
-            logger.error(f"[SummariesV2] Error: {e}")
+            logger.error("[SummariesV2] Error: %s", e)
             summarize_v2_statuses[task_id]["status"] = "failed"
             summarize_v2_statuses[task_id]["errors"].append(str(e))
         finally:
@@ -223,6 +241,35 @@ def api_summarize_v2_status(task_id):
     if not status:
         return jsonify({"status": "error", "message": "Invalid task ID"}), 404
     return jsonify(status)
+
+
+@api_bp.route("/active-tasks", methods=["GET"])
+def api_active_tasks():
+    """Return list of active (pending/running) tasks for the notification dropdown."""
+    active = []
+    for task_id, status in _snapshot_status_items(download_statuses):
+        if status.get("status") in ("pending", "in_progress"):
+            active.append(
+                {
+                    "task_id": task_id,
+                    "name": f"Download: {task_id}",
+                    "status": status["status"],
+                    "processed": status.get("processed", 0),
+                    "total": status.get("total", 0),
+                }
+            )
+    for task_id, status in _snapshot_status_items(summarize_v2_statuses):
+        if status.get("status") in ("pending", "in_progress"):
+            active.append(
+                {
+                    "task_id": task_id,
+                    "name": f"Summarize: {task_id}",
+                    "status": status["status"],
+                    "processed": status.get("processed", 0),
+                    "total": status.get("total", 0),
+                }
+            )
+    return jsonify(active)
 
 
 @api_bp.route("/channels", methods=["GET"])
@@ -271,7 +318,7 @@ def api_rename_channel():
         return jsonify({"status": "ok", "old_name": old_name, "new_name": safe_new_name})
 
     except SQLAlchemyError as e:
-        logger.error(f"Error renaming channel in DB: {e}")
+        logger.error("Error renaming channel in DB: %s", e)
         session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
@@ -297,7 +344,7 @@ def api_refresh_channel():
             )
             .first()
         )
-        logger.debug(f"folder_obj: {folder_obj}")
+        logger.debug("folder_obj: %s", folder_obj)
         if not folder_obj:
             logger.warning("Channel not found")
             return jsonify({"status": "error", "message": "Channel not found"}), 404
@@ -314,7 +361,7 @@ def api_refresh_channel():
                 download_channel_transcripts(channel_url, download_statuses[task_id])
                 download_statuses[task_id]["status"] = "completed"
             except Exception as e:
-                logger.error(f"Error in channel refresh: {e}")
+                logger.error("Error in channel refresh: %s", e)
                 download_statuses[task_id]["status"] = "failed"
                 download_statuses[task_id]["errors"].append(str(e))
 
@@ -369,7 +416,7 @@ def api_all_tasks():
     """Return a list of all tasks (downloads and summaries) in a single JSON array."""
     all_tasks = []
 
-    for task_id, stat in download_statuses.items():
+    for task_id, stat in _snapshot_status_items(download_statuses):
         all_tasks.append(
             {
                 "task_id": task_id,
@@ -381,7 +428,7 @@ def api_all_tasks():
             }
         )
 
-    for task_id, stat in summarize_v2_statuses.items():
+    for task_id, stat in _snapshot_status_items(summarize_v2_statuses):
         all_tasks.append(
             {
                 "task_id": task_id,
@@ -408,5 +455,5 @@ def api_vllm_models():
             if "data" in data:
                 models.extend(data["data"])
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Failed to list models from {url}: {e}")
+            logger.warning("Failed to list models from %s: %s", url, e)
     return jsonify({"models": models})

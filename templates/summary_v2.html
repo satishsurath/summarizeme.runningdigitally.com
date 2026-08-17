@@ -1,3 +1,4 @@
+{% from 'macros.html' import render_icon %}
 {% extends "layout.html" %}
 {% block content %}
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -26,17 +27,8 @@
           Concise Summary
         </span>
         <div class="flex items-center space-x-2">
-          <span onclick="copyToClipboard('concise-summary-content'); event.stopPropagation();"
-                class="cursor-pointer p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-            </svg>
-          </span>
-          <svg class="h-5 w-5 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M19 9l-7 7-7-7" />
-          </svg>
+          {{ render_icon('document', 'md') }}
+          {{ render_icon('chevronDown', 'md') }}
         </div>
       </button>
       <div id="concise-summary" class="hidden">
@@ -54,17 +46,8 @@
           Key Topics
         </span>
         <div class="flex items-center space-x-2">
-          <span onclick="copyToClipboard('key-topics-content'); event.stopPropagation();"
-                class="cursor-pointer p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-            </svg>
-          </span>
-          <svg class="h-5 w-5 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M19 9l-7 7-7-7" />
-          </svg>
+          {{ render_icon('document', 'md') }}
+          {{ render_icon('chevronDown', 'md') }}
         </div>
       </button>
       <div id="key-topics" class="hidden">
@@ -82,17 +65,8 @@
           Important Takeaways
         </span>
         <div class="flex items-center space-x-2">
-          <span onclick="copyToClipboard('important-takeaways-content'); event.stopPropagation();"
-                class="cursor-pointer p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-            </svg>
-          </span>
-          <svg class="h-5 w-5 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M19 9l-7 7-7-7" />
-          </svg>
+          {{ render_icon('document', 'md') }}
+          {{ render_icon('chevronDown', 'md') }}
         </div>
       </button>
       <div id="important-takeaways" class="hidden">
@@ -110,17 +84,8 @@
           Comprehensive Notes
         </span>
         <div class="flex items-center space-x-2">
-          <span onclick="copyToClipboard('comprehensive-notes-content'); event.stopPropagation();"
-                class="cursor-pointer p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-            </svg>
-          </span>
-          <svg class="h-5 w-5 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M19 9l-7 7-7-7" />
-          </svg>
+          {{ render_icon('document', 'md') }}
+          {{ render_icon('chevronDown', 'md') }}
         </div>
       </button>
       <div id="comprehensive-notes" class="hidden">
@@ -143,17 +108,8 @@
           Transcript (no timestamps)
         </span>
         <div class="flex items-center space-x-2">
-          <span onclick="copyToClipboard('noTsContent-text'); event.stopPropagation();"
-                class="cursor-pointer p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-            </svg>
-          </span>
-          <svg class="h-5 w-5 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M19 9l-7 7-7-7" />
-          </svg>
+          {{ render_icon('document', 'md') }}
+          {{ render_icon('chevronDown', 'md') }}
         </div>
       </button>
       <div id="noTsContent" class="hidden">
@@ -171,17 +127,8 @@
           Transcript (with timestamps)
         </span>
         <div class="flex items-center space-x-2">
-          <span onclick="copyToClipboard('withTsContent-text'); event.stopPropagation();"
-                class="cursor-pointer p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-            </svg>
-          </span>
-          <svg class="h-5 w-5 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M19 9l-7 7-7-7" />
-          </svg>
+          {{ render_icon('document', 'md') }}
+          {{ render_icon('chevronDown', 'md') }}
         </div>
       </button>
       <div id="withTsContent" class="hidden">

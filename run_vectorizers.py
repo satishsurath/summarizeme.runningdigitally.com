@@ -2,12 +2,15 @@
 # Plain Python vectorization using vLLM directly - no PGAI ai extension required
 
 import json
+import logging
 import os
 import re
 
 import httpx
 import psycopg2
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 
 def split_into_chunks(text, chunk_size=1000, overlap=200):
@@ -66,22 +69,22 @@ def get_embedding(text, model_name="nemo-nomic-embed-text-v1.5"):
                 result = resp.json()
                 return result.get("data", [{}])[0].get("embedding")
             else:
-                print(f"[ERROR] vLLM embed HTTP error: {resp.status_code} {resp.text[:200]}")
+                logger.error("vLLM embed HTTP error: %d %s", resp.status_code, resp.text[:200])
                 return None
         except (httpx.HTTPError, httpx.Timeout, json.JSONDecodeError, KeyError, IndexError) as e:
             if attempt < 2:
-                print(f"[WARN] vLLM embed error (attempt {attempt + 1}/3): {e}")
+                logger.warning("vLLM embed error (attempt %d/3): %s", attempt + 1, e)
                 import time
 
                 time.sleep(2**attempt)
                 continue
-            print(f"[ERROR] vLLM embed error: {e}")
+            logger.error("vLLM embed error: %s", e)
             return None
 
 
 def ensure_pgvector(cur, conn):
     """Ensure pgvector extension is installed."""
-    print("[INFO] Ensuring pgvector extension is installed...")
+    logger.info("Ensuring pgvector extension is installed...")
     conn.autocommit = True
     cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
     conn.autocommit = False
@@ -144,7 +147,7 @@ def process_column(
     overlap=200,
 ):
     """Process a column and generate embeddings."""
-    print(f"[INFO] Processing {table_name}.{column_name}...")
+    logger.info("Processing %s.%s...", table_name, column_name)
 
     dest_table = (
         f"{destination_prefix}{column_name}_embedding"
@@ -169,10 +172,10 @@ def process_column(
 
     rows = cur.fetchall()
     if not rows:
-        print(f"  [INFO] No new rows to process for {table_name}.{column_name}")
+        logger.info("No new rows to process for %s.%s", table_name, column_name)
         return
 
-    print(f"  [INFO] Processing {len(rows)} rows...")
+    logger.info("Processing %d rows...", len(rows))
 
     for row_id, content in rows:
         if not content or not content.strip():
@@ -205,7 +208,7 @@ def process_column(
 
         conn.commit()
 
-    print(f"  [OK] Done with {table_name}.{column_name}")
+    logger.info("Done with %s.%s", table_name, column_name)
 
 
 def main():
@@ -214,10 +217,10 @@ def main():
 
     DB_URL = os.environ.get("DATABASE_URL")
     if not DB_URL:
-        print("[ERROR] DATABASE_URL not set in environment")
+        logger.error("DATABASE_URL not set in environment")
         return
 
-    print("[INFO] Connecting to database...")
+    logger.info("Connecting to database...")
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()
 
@@ -250,11 +253,11 @@ def main():
                 overlap=200,
             )
 
-        print("[SUCCESS] All embeddings processed successfully!")
+        logger.info("All embeddings processed successfully!")
 
     except Exception as e:
         conn.rollback()
-        print(f"[ERROR] Error during vectorization: {e}")
+        logger.error("Error during vectorization: %s", e)
         raise
     finally:
         cur.close()

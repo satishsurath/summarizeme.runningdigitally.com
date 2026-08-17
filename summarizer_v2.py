@@ -178,7 +178,7 @@ def vllm_generate_chunk(model_name, prompt, client=None):
         )
         msg = response.choices[0].message if response.choices else None
         data = msg.content if msg and msg.content else (getattr(msg, "reasoning", None) or "")
-    except (APIError, APIStatusError, APIConnectionError, Exception):
+    except Exception:
         # Fallback to httpx for vLLM compatibility
         try:
             resp = httpx.post(
@@ -194,16 +194,14 @@ def vllm_generate_chunk(model_name, prompt, client=None):
                 },
                 timeout=120,
             )
-            import json
-
             try:
                 result = resp.json()
                 msg = result.get("choices", [{}])[0].get("message", {})
                 data = msg.get("content") or msg.get("reasoning") or ""
-            except json.JSONDecodeError:
+            except Exception:
                 shared_logger.error("vLLM returned invalid JSON: %s", resp.text[:200])
                 return ""
-            else:
+            if resp.status_code != 200:
                 shared_logger.error(
                     "vLLM HTTP error: %s %s",
                     resp.status_code,

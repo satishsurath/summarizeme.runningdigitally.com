@@ -56,28 +56,20 @@ document.addEventListener("DOMContentLoaded", () => {
         html += `
           <li class="flex items-center space-x-4 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200">
             <span class="edit-icon cursor-pointer text-gray-600 dark:text-gray-400 hover:text-blue-500 transition-colors duration-200" data-channel="${channel.folder_name}">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 -960 960 960">
-                <path fill="currentColor" d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Z"/>
-              </svg>
+              ${IconLibrary.render('edit', 'md')}
             </span>
             
             <span class="delete-icon cursor-pointer text-gray-600 dark:text-gray-400 hover:text-red-500 transition-colors duration-200" data-channel="${channel.folder_name}">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 -960 960 960">
-                <path fill="currentColor" d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Z"/>
-              </svg>
+              ${IconLibrary.render('trash', 'md')}
             </span>
 
             <span class="refresh-icon cursor-pointer text-gray-600 dark:text-gray-400 hover:text-green-500 transition-colors duration-200" data-channel="${channel.folder_name}">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24">
-                <path fill="currentColor" d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 .34-.03.67-.08 1h2.02c.05-.33.06-.66.06-1 0-4.42-3.58-8-8-8zm-6 8c0-.34.03-.67.08-1H4.06c-.05.33-.06.66-.06 1 0 4.42 3.58 8 8 8v3l4-4-4-4v3c-3.31 0-6-2.69-6-6z"/>
-              </svg>
+              ${IconLibrary.render('refresh', 'md')}
             </span>
 
             <span class="chat-icon cursor-pointer text-gray-600 dark:text-gray-400 hover:text-purple-500 transition-colors duration-200" data-channel="${channel.folder_name}">
               <a href="/chat-channel/${channel.folder_name}" class="block">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 -960 960 960">
-                  <path fill="currentColor" d="M240-400h320v-80H240v80Zm0-120h480v-80H240v80Zm0-120h480v-80H240v80ZM80-80v-720q0-33 23.5-56.5T160-880h640q33 0 56.5 23.5T880-800v480q0 33-23.5 56.5T800-240H240L80-80Z"/>
-                </svg>
+                ${IconLibrary.render('chat', 'md')}
               </a>
             </span>
 
@@ -130,12 +122,14 @@ document.addEventListener("DOMContentLoaded", () => {
     spanElem.innerHTML = `
       <input type="text" 
              class="rename-input w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
-             value="${currentValue}" />
+             value="" />
     `;
     
     const input = spanElem.querySelector(".rename-input");
+    // Set value safely via property to prevent XSS
+    input.value = currentValue;
     input.focus();
-
+    
     let renameTriggered = false;
 
     input.addEventListener("blur", () => {
@@ -178,11 +172,11 @@ document.addEventListener("DOMContentLoaded", () => {
           editIcon.dataset.channel = data.new_name;
         }
       } else {
-        alert(`Rename error: ${data.message}`);
+        toast.error(`Rename error: ${data.message}`);
         revertSpan(oldName, oldName);
       }
     } catch (err) {
-      alert(`Rename error: ${err}`);
+      toast.error(`Rename error: ${err}`);
       revertSpan(oldName, oldName);
     }
   }
@@ -230,10 +224,10 @@ document.addEventListener("DOMContentLoaded", () => {
           setTimeout(() => liElem.remove(), 300);
         }
       } else {
-        alert(`Error deleting channel: ${data.message || "Unknown error"}`);
+        toast.error(`Error deleting channel: ${data.message || "Unknown error"}`);
       }
     } catch (err) {
-      alert(`Error deleting channel: ${err}`);
+      toast.error(`Error deleting channel: ${err}`);
     }
   }
 
@@ -245,7 +239,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!confirm(`Refresh channel "${channelName}" to check for new videos?`)) {
       return;
     }
-    console.log('refreshing channel', channelName);
     fetch("/api/channels/refresh", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -254,17 +247,16 @@ document.addEventListener("DOMContentLoaded", () => {
     .then(response => response.json())
     .then(data => {
       if (data.status === "initiated") {
-        console.log('refresh initiated', data.task_id);
         // const icon = event.currentTarget.querySelector('svg');
         // icon.classList.add('animate-spin');
         // setTimeout(() => icon.classList.remove('animate-spin'), 1000);
-        alert(`Refresh initiated. Task ID: ${data.task_id}`);
+        toast.show(`Refresh initiated. Task ID: ${data.task_id}`, 'info', 3000);
       } else {
-        alert(`Error refreshing channel: ${data.message}`);
+        toast.error(`Error refreshing channel: ${data.message}`);
       }
     })
     .catch(err => {
-      alert(`Error refreshing channel: ${err}`);
+      toast.error(`Error refreshing channel: ${err}`);
     });
   }
 
@@ -277,6 +269,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   `;
   document.head.appendChild(style);
+
+  // Legend Toggle (mobile)
+  const legendToggle = document.getElementById("legendToggle");
+  const legendContent = document.getElementById("legendContent");
+  const legendChevron = document.getElementById("legendChevron");
+  if (legendToggle && legendContent && legendChevron) {
+    legendToggle.addEventListener("click", () => {
+      legendContent.classList.toggle("hidden");
+      legendChevron.style.transform = legendContent.classList.contains("hidden") ? "" : "rotate(180deg)";
+    });
+  }
+
 
   // Load channels on page load
   loadChannels();

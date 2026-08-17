@@ -31,6 +31,11 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
   }
 
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+  }
   async function fetchAllTasks() {
     try {
       const res = await fetch("/api/all-tasks");
@@ -68,14 +73,14 @@ document.addEventListener("DOMContentLoaded", () => {
         tableHTML += `
           <tr class="${rowClass} hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-              ${task.task_id}
+              ${escapeHtml(task.task_id)}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-              ${task.type}
+              ${escapeHtml(task.type)}
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
               <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(task.status)}">
-                ${task.status}
+                ${escapeHtml(task.status)}
               </span>
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
@@ -84,7 +89,7 @@ document.addEventListener("DOMContentLoaded", () => {
               </div>
             </td>
             <td class="px-6 py-4 text-sm text-red-500 dark:text-red-400">
-              ${task.errors.length ? task.errors.join(", ") : '-'}
+              ${task.errors.length ? escapeHtml(task.errors.join(", ")) : '-'}
             </td>
           </tr>
         `;
@@ -120,9 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="rounded-md bg-red-50 dark:bg-red-900/50 p-4">
           <div class="flex">
             <div class="flex-shrink-0">
-              <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
-              </svg>
+              ${IconLibrary.render('x', 'md', { class: 'text-red-400' })}
             </div>
             <div class="ml-3">
               <h3 class="text-sm font-medium text-red-800 dark:text-red-200">

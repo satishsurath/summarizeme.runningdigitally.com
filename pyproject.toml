@@ -1,10 +1,14 @@
 [tool.ruff]
+exclude = ["icon_data.py"]
 line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "SIM", "UP", "RUF"]
 ignore = []
+
+[tool.ruff.format]
+exclude = ["**/*.md", "icon_data.py"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app_config", "db", "summarizeme"]

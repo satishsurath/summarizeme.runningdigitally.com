@@ -4,7 +4,7 @@ import logging
 import os
 import subprocess
 import urllib.request
-from datetime import datetime
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 from pytube import YouTube
@@ -120,7 +120,7 @@ def download_channel_transcripts(channel_url, status_dict):
 
         # Update folder last_modified
         if existing_folder:
-            existing_folder.last_modified = datetime.utcnow()
+            existing_folder.last_modified = datetime.now(UTC)
             session.commit()
 
     except Exception as e:
@@ -144,7 +144,7 @@ def ensure_folder_association(session, video_id, channel_id, folder_name):
             folder_name=folder_name,
             original_playlist_id=channel_id,
             video_id=video_id,
-            last_modified=datetime.utcnow(),
+            last_modified=datetime.now(UTC),
         )
         session.add(folder_assoc)
         session.commit()

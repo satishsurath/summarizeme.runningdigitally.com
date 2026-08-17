@@ -2,15 +2,48 @@
    SummarizeMe — Icon Sizing Classes
    ============================================================
    Consistent icon sizes across the application.
-   Apply to icon containers; icons themselves use width/height.
+   Uses explicit CSS for CDN compatibility (no build step required).
    ============================================================ */
 
-.icon-sm { @apply w-4 h-4; }
-.icon-md { @apply w-5 h-5; }
-.icon-lg { @apply w-6 h-6; }
-.icon-xl { @apply w-8 h-8; }
+.icon-sm { width: 1rem; height: 1rem; }
+.icon-md { width: 1.25rem; height: 1.25rem; }
+.icon-lg { width: 1.5rem; height: 1.5rem; }
+.icon-xl { width: 2rem; height: 2rem; }
 
 /* Icon button container */
 .icon-btn {
-  @apply inline-flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 transition-colors min-w-[44px] min-h-[44px] text-gray-600 dark:text-gray-400;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  min-width: 44px;
+  min-height: 44px;
+  color: #4b5563;
+  transition-property: color, background-color;
+  transition-duration: 150ms;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.dark .icon-btn {
+  color: #9ca3af;
+}
+
+.icon-btn:hover {
+  background-color: #f3f4f6;
+}
+
+.dark .icon-btn:hover {
+  background-color: #374151;
+}
+
+.icon-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px #3b82f6, 0 0 0 4px white;
+}
+
+.dark .icon-btn:focus {
+  box-shadow: 0 0 0 2px #3b82f6, 0 0 0 4px #111827;
 }

@@ -1,3 +1,4 @@
+{% from 'macros.html' import render_icon %}
 {% extends "layout.html" %}
 {% block content %}
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -29,10 +30,7 @@
         <button onclick="toggleTranscript()" 
                 class="w-full flex items-center justify-between px-6 py-4 bg-white dark:bg-gray-800 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
             <span class="text-lg font-medium text-gray-900 dark:text-white">Transcript</span>
-            <svg id="transcriptArrow" class="h-5 w-5 text-gray-500 transform transition-transform duration-200" 
-                 fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-            </svg>
+            {{ render_icon('chevronDown', 'md', 'text-gray-500 transform transition-transform duration-200', 'transcriptArrow') }}
         </button>
         <div id="transcriptContent" class="hidden mt-2">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
@@ -65,6 +63,7 @@
             <textarea id="userQuery" 
                       rows="3" 
                       placeholder="Enter your question..." 
+                      aria-label="Chat message"
                       class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"></textarea>
             <button id="sendBtn" 
                     class="mt-4 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
@@ -73,7 +72,7 @@
         </div>
 
         <!-- Chat Result -->
-        <div id="chatResult" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+        <div id="chatResult" role="log" aria-label="Chat messages" aria-live="polite" aria-busy="false" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 min-h-[300px] max-h-[600px] overflow-y-auto space-y-4">
             <div class="prose dark:prose-invert max-w-none">
                 <!-- Response will be inserted here -->
             </div>
@@ -81,55 +80,21 @@
     </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
 <script>
-function toggleTranscript() {
-    const content = document.getElementById('transcriptContent');
-    const arrow = document.getElementById('transcriptArrow');
-    
-    if (content.classList.contains('hidden')) {
-        content.classList.remove('hidden');
-        arrow.classList.add('rotate-180');
-    } else {
-        content.classList.add('hidden');
-        arrow.classList.remove('rotate-180');
-    }
-}
-
-document.getElementById('sendBtn').addEventListener('click', async () => {
-    const query = document.getElementById('userQuery').value.trim();
-    const dataType = document.getElementById('dataTypeSelect').value;
-    if (!query) return;
-
-    const chatDiv = document.getElementById('chatResult');
-    chatDiv.innerHTML = `
-        <div class="flex items-center justify-center space-x-2 text-gray-500 dark:text-gray-400">
-            <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span>Processing your question...</span>
-        </div>
-    `;
-
-    try {
-        const resp = await fetch(`/api/chat-video/{{ video_id }}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query, data_type: dataType })
-        });
-        const data = await resp.json();
-        chatDiv.innerHTML = `
-            <div class="prose dark:prose-invert max-w-none">
-                ${data.answer}
-            </div>
-        `;
-    } catch (err) {
-        chatDiv.innerHTML = `
-            <div class="text-red-500 dark:text-red-400">
-                Error: ${err}
-            </div>
-        `;
-    }
+// Initialize ChatUI for video chat
+const videoChat = new ChatUI({
+  textareaId: 'userQuery',
+  resultId: 'chatResult',
+  sendBtnId: 'sendBtn',
+  apiUrl: `/api/chat-video/{{ video_id }}`,
+  method: 'POST',
+  getBody: (query) => ({
+    query,
+    data_type: document.getElementById('dataTypeSelect').value
+  })
 });
 </script>
 {% endblock %}

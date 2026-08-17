@@ -66,7 +66,7 @@ Central configuration module that:
 - Defines SQL templates for chat (whitelist-based)
 - Configures structured logging (`shared_logger`)
 - Exports shared utilities for blueprints
-| `*_embedding` | Vector embeddings for semantic search (e.g., `videos_transcript_no_ts_embedding`) |
+
 ### Summarizer (`summarizer_v2.py`)
 
 Core summarization and embedding module:
