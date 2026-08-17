@@ -3,20 +3,27 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="SummarizeMe - YouTube channel and video summarization" />
     <title>{{ title|default("YouTube Channel Summarizer") }}</title>
     
-    <!-- Tailwind CSS -->
+    <!-- Tailwind CSS CDN (dev) / compiled CSS (prod) -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Dark mode script - set before page load -->
+    <!-- Design system: components, icons, config -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/icons.css') }}">
+    
+    <!-- Dark mode: set before paint to avoid flash -->
     <script>
-        if (localStorage.getItem('darkMode') !== 'false') {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('darkMode', 'true');
-        }
+        (function() {
+            const stored = localStorage.getItem('darkMode');
+            if (stored === 'true' || (stored !== 'false' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            }
+        })();
     </script>
     
-    <!-- Tailwind and custom styles -->
+    <!-- Tailwind config -->
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -66,19 +73,26 @@
     </style>
 </head>
 <body class="bg-white dark:bg-gray-900 transition-colors duration-200">
+    <!-- Skip navigation for accessibility -->
+    <a href="#main-content" 
+       class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 bg-primary-500 text-white px-4 py-2 rounded-lg z-50 transition-colors hover:bg-primary-600">
+        Skip to main content
+    </a>
+
     <header class="border-b border-gray-200 dark:border-gray-700">
-        <nav class="container mx-auto px-4 py-4">
+        <nav class="container mx-auto px-4 py-4" aria-label="Main navigation">
             <div class="flex items-center justify-between">
                 <!-- Brand -->
                 <a href="{{ url_for('main.index') }}" class="text-2xl font-bold text-gray-800 dark:text-white hover:text-primary">
-                    Summarizeme
+                    SummarizeMe
                 </a>
                 
                 <!-- Mobile menu button -->
                 <div class="flex items-center space-x-4 md:hidden">
                     <!-- Dark mode toggle for mobile -->
                     <button id="darkModeToggleMobile" 
-                            class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                            class="icon-btn"
+                            aria-label="Toggle dark mode">
                         <div class="dark-mode-toggle">
                             <!-- Sun icon -->
                             <svg class="sun w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -95,22 +109,30 @@
                         </div>
                     </button>
                     
-                    <button id="mobile-menu-button" class="rounded-lg focus:outline-none focus:shadow-outline">
-                        <svg fill="currentColor" viewBox="0 0 20 20" class="w-6 h-6 text-gray-600 dark:text-gray-300">
-                            <path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM9 15a1 1 0 011-1h6a1 1 0 110 2h-6a1 1 0 01-1-1z"></path>
+                    <button id="mobile-menu-button" 
+                            class="icon-btn"
+                            aria-label="Open navigation menu"
+                            aria-expanded="false"
+                            aria-controls="mobile-menu">
+                        <svg class="w-6 h-6 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                         </svg>
                     </button>
                 </div>
 
                 <!-- Desktop menu -->
                 <div class="hidden md:flex items-center space-x-8">
-                    <a href="{{ url_for('main.index') }}" class="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary">Home</a>
-                    <a href="{{ url_for('main.status_page') }}" class="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary">Check Status</a>
-                    <a href="{{ url_for('admin.admin_settings') }}" class="text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary">Admin</a>
+                    <a href="{{ url_for('main.index') }}" 
+                       class="nav-link {% if request.endpoint == 'main.index' %}active{% endif %}">Home</a>
+                    <a href="{{ url_for('main.status_page') }}" 
+                       class="nav-link {% if request.endpoint == 'main.status_page' %}active{% endif %}">Check Status</a>
+                    <a href="{{ url_for('admin.admin_settings') }}" 
+                       class="nav-link {% if request.endpoint == 'admin.admin_settings' %}active{% endif %}">Admin</a>
                     
                     <!-- Dark mode toggle for desktop -->
                     <button id="darkModeToggle" 
-                            class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                            class="icon-btn"
+                            aria-label="Toggle dark mode">
                         <div class="dark-mode-toggle">
                             <!-- Sun icon -->
                             <svg class="sun w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -130,17 +152,35 @@
             </div>
 
             <!-- Mobile menu -->
-            <div id="mobile-menu" class="hidden md:hidden mt-4 space-y-4">
-                <a href="{{ url_for('main.index') }}" class="block text-gray-600 dark:text-gray-300">Home</a>
-                <a href="{{ url_for('main.status_page') }}" class="block text-gray-600 dark:text-gray-300">Check Status</a>
-                <a href="{{ url_for('admin.admin_settings') }}" class="block text-gray-600 dark:text-gray-300">Admin</a>
+            <div id="mobile-menu" 
+                 class="hidden md:hidden mt-4 space-y-2"
+                 role="menu">
+                <a href="{{ url_for('main.index') }}" 
+                   class="block px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                   role="menuitem">Home</a>
+                <a href="{{ url_for('main.status_page') }}" 
+                   class="block px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                   role="menuitem">Check Status</a>
+                <a href="{{ url_for('admin.admin_settings') }}" 
+                   class="block px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                   role="menuitem">Admin</a>
             </div>
         </nav>
     </header>
 
-    <main class="container mx-auto px-4 py-8">
+    <!-- Main content area -->
+    <main id="main-content" class="container mx-auto px-4 py-8">
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Live region for screen reader announcements -->
+    <div id="liveRegion" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+
+    <!-- Script order: dependencies first, then page-specific -->
+    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/loading.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+    {% block scripts %}{% endblock %}
 
     <!-- Dark mode toggle and mobile menu logic -->
     <script>
@@ -148,28 +188,44 @@
         const mobileMenuButton = document.getElementById('mobile-menu-button');
         const mobileMenu = document.getElementById('mobile-menu');
         
-        mobileMenuButton.addEventListener('click', () => {
-            mobileMenu.classList.toggle('hidden');
-        });
+        if (mobileMenuButton && mobileMenu) {
+            mobileMenuButton.addEventListener('click', () => {
+                const isOpen = !mobileMenu.classList.contains('hidden');
+                mobileMenu.classList.toggle('hidden');
+                mobileMenuButton.setAttribute('aria-expanded', !isOpen);
+                mobileMenuButton.setAttribute('aria-label', isOpen ? 'Open navigation menu' : 'Close navigation menu');
+            });
+
+            // Close mobile menu on Escape
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !mobileMenu.classList.contains('hidden')) {
+                    mobileMenu.classList.add('hidden');
+                    mobileMenuButton.setAttribute('aria-expanded', 'false');
+                    mobileMenuButton.focus();
+                }
+            });
+        }
 
         // Dark mode toggle function
         function toggleDarkMode() {
-            document.documentElement.classList.toggle('dark');
-            localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
+            const isDark = document.documentElement.classList.toggle('dark');
+            localStorage.setItem('darkMode', isDark);
         }
 
         // Add click handlers to both desktop and mobile dark mode toggles
-        document.getElementById('darkModeToggle').addEventListener('click', toggleDarkMode);
-        document.getElementById('darkModeToggleMobile').addEventListener('click', toggleDarkMode);
+        const darkModeToggleDesktop = document.getElementById('darkModeToggle');
+        const darkModeToggleMobile = document.getElementById('darkModeToggleMobile');
+        if (darkModeToggleDesktop) darkModeToggleDesktop.addEventListener('click', toggleDarkMode);
+        if (darkModeToggleMobile) darkModeToggleMobile.addEventListener('click', toggleDarkMode);
     </script>
-    <svg>
+    <svg style="display:none">
       <defs>
       <symbol id="icon-summarizeYouTube"  viewBox="0 0 48 48">
         <linearGradient id="PgB_UHa29h0TpFV_moJI9a" x1="9.816" x2="41.246" y1="9.871" y2="41.301" gradientUnits="userSpaceOnUse">
                 <stop offset="0" stop-color="#f44f5a"/><stop offset=".443" stop-color="#ee3d4a"/>
                 <stop offset="1" stop-color="#e52030"/>
         </linearGradient>
-        <path fill="url(#PgB_UHa29h0TpFV_moJI9a)" d="M45.012,34.56c-0.439,2.24-2.304,3.947-4.608,4.267C36.783,39.36,30.748,40,23.945,40	c-6.693,0-12.728-0.64-16.459-1.173c-2.304-0.32-4.17-2.027-4.608-4.267C2.439,32.107,2,28.48,2,24s0.439-8.107,0.878-10.56	c0.439-2.24,2.304-3.947,4.608-4.267C11.107,8.64,17.142,8,23.945,8s12.728,0.64,16.459,1.173c2.304,0.32,4.17,2.027,4.608,4.267	C45.451,15.893,46,19.52,46,24C45.89,28.48,45.451,32.107,45.012,34.56z"/><path d="M32.352,22.44l-11.436-7.624c-0.577-0.385-1.314-0.421-1.925-0.093C18.38,15.05,18,15.683,18,16.376	v15.248c0,0.693,0.38,1.327,0.991,1.654c0.278,0.149,0.581,0.222,0.884,0.222c0.364,0,0.726-0.106,1.04-0.315l11.436-7.624	c0.523-0.349,0.835-0.932,0.835-1.56C33.187,23.372,32.874,22.789,32.352,22.44z" opacity=".05"/>
+        <path fill="url(#PgB_UHa29h0TpFV_moJI9a)" d="M45.012,34.56c-0.439,2.24-2.304,3.947-4.608,4.267C36.783,39.36,30.748,40,23.945,40	c-6.693,0-12.728-0.64-16.459-1.173c-2.304-0.32-4.17-2.027-4.608-4.267C2.439,32.107,2,28.48,2,24s0.439-8.107,0.878-10.56	c0.439-2.24,2.304-3.947,4.608-4.267C11.107,8.64,17.142,8,23.945,8s12.728,0.64,16.459,1.173c2.304,0.32,4.17,2.027,4.608,4.267	C45.451,15.893,46,19.52,46,24C45.89,28.48,45.451,32.107,45.012,34.56z"/><path d="M32.352,22.44l-11.436-7.624c-0.577-0.385-1.314-0.421-1.925-0.093C18.38,15.05,18,15.683,18,16.376	v15.248c0,0.693,0.38,1.327,0.991,1.654c0.278,0.149,0.581,0.222,0.884,0.222c0.364,0,0.726-0.106,1.04-0.315l11.436-7.624	c0.523-0.349,0.835-0.932,0.835-1.56C33.187,23.372,32.874,22.789,32.352,22.44z" opacity=".07"/>
         <path d="M20.681,15.237l10.79,7.194c0.689,0.495,1.153,0.938,1.153,1.513c0,0.575-0.224,0.976-0.715,1.334	c-0.371,0.27-11.045,7.364-11.045,7.364c-0.901,0.604-2.364,0.476-2.364-1.499V16.744C18.5,14.739,20.084,14.839,20.681,15.237z" opacity=".07"/>
         <path fill="#fff" d="M19,31.568V16.433c0-0.743,0.828-1.187,1.447-0.774l11.352,7.568c0.553,0.368,0.553,1.18,0,1.549	l-11.352,7.568C19.828,32.755,19,32.312,19,31.568z"/>
       </symbol>
