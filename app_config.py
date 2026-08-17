@@ -20,6 +20,9 @@ from auth_utils import get_current_user
 
 # If you store your models and sync code in separate modules:
 from db.models import SummariesV2, User, Video, VideoFolder  # noqa: F401  # re-exported for blueprints
+
+# Task store — Redis-backed, shared across all blueprints
+from services.task_store import TaskStore
 from summarizer_v2 import (  # noqa: F401  # re-exported for blueprints
     build_prompts_for_chunk,
     chunk_transcript,
@@ -82,10 +85,14 @@ _logger.info("[Embed LLM] Using vLLM: %s", VLLM_EMBED_URL)
 _logger.info("[Gen LLM]   Using vLLM: %s", VLLM_GEN_URL)
 
 
-# In-memory storage for statuses (for demo).
-# For production, use a database or a caching layer (Redis).
-download_statuses = {}
-summarize_v2_statuses = {}
+task_store = TaskStore()
+
+# Legacy-compatible aliases (backed by task_store)
+# download_statuses / summarize_v2_statuses are replaced by task_store methods.
+# Old code used: download_statuses[task_id] = {...}
+# New code uses: task_store.create_task("download"), task_store.update_task(...)
+download_statuses = task_store
+summarize_v2_statuses = task_store
 
 
 # Define a decorator to require a specific role
