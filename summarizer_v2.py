@@ -251,6 +251,7 @@ def vllm_generate_stream(model_name: str, prompt: str):
             import json
 
             import httpx
+
             payload = {
                 "model": model_name,
                 "messages": [{"role": "user", "content": prompt}],
@@ -288,10 +289,7 @@ def vllm_generate_stream(model_name: str, prompt: str):
                             return
                         try:
                             data = json.loads(data_str)
-                            delta = (
-                                data.get("choices", [{}])[0]
-                                .get("delta", {})
-                            )
+                            delta = data.get("choices", [{}])[0].get("delta", {})
                             delta_content = delta.get("content", "") or ""
                             full_text += delta_content
                             yield delta_content, False
