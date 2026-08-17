@@ -119,9 +119,7 @@ def ensure_destination_table(cur, conn, table_name):
             "CREATE INDEX IF NOT EXISTS {} ON {} USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);"
         ).format(index_ref, table_ref)
     )
-    cur.execute(
-        sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} (source_id);").format(source_id_idx_ref, table_ref)
-    )
+    cur.execute(sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} (source_id);").format(source_id_idx_ref, table_ref))
 
 
 def upsert_embedding(cur, conn, table_name, source_id, source_table, source_column, chunk_order, content, embedding):
