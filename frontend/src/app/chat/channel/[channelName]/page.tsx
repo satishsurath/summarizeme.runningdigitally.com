@@ -169,7 +169,6 @@ export default function ChatPage() {
       setLoading(false);
     }
   };
-
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] max-w-4xl mx-auto">
       {/* Header */}
@@ -218,7 +217,7 @@ export default function ChatPage() {
                   : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               }`}
             >
-              <div className="text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.content) }} />
+              <div className="text-sm leading-relaxed whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.content) }} />
               <span className={`text-xs mt-1 block ${
                 msg.role === "user" ? "text-blue-200" : "text-gray-400"
               }`}>

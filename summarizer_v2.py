@@ -169,8 +169,9 @@ def vllm_generate_chunk(model_name, prompt, client=None):
     if not _HAS_OPENAI:
         shared_logger.error("openai SDK not installed")
         return ""
+    base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
     try:
-        chat_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
+        chat_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
         response = chat_client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
@@ -230,8 +231,9 @@ def vllm_generate_stream(model_name: str, prompt: str):
         yield "", True
         return
 
+    base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
     try:
-        chat_client = _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
+        chat_client = _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
         stream = chat_client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
@@ -241,9 +243,12 @@ def vllm_generate_stream(model_name: str, prompt: str):
         full_text = ""
         for chunk in stream:
             delta = chunk.choices[0].delta if chunk.choices else None
-            delta_content = delta.content if delta and delta.content else ""
-            full_text += delta_content
-            yield delta_content, False
+            delta_content = (delta.content if delta and delta.content else "") or (
+                getattr(delta, "reasoning", None) or "" if delta else ""
+            )
+            if delta_content:
+                full_text += delta_content
+                yield delta_content, False
         yield "", True
     except Exception:
         # Fallback to httpx streaming for vLLM compatibility
@@ -315,8 +320,9 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
     if not _HAS_OPENAI:
         shared_logger.error("openai SDK not installed")
         return None
+    base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
     try:
-        embed_client = client or _OpenAI(base_url=llm_url, api_key=_VLLM_GEN_API_KEY)
+        embed_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
         response = embed_client.embeddings.create(
             model=model_name,
             input=[text_input],

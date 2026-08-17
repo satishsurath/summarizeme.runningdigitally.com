@@ -12,7 +12,9 @@ COPY frontend/ ./
 
 # Build
 ARG NEXT_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_FLASK_URL=
 ENV NEXT_API_URL=${NEXT_API_URL}
+ENV NEXT_PUBLIC_FLASK_URL=${NEXT_PUBLIC_FLASK_URL}
 RUN npm run build
 
 # Production stage

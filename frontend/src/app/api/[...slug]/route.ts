@@ -24,8 +24,9 @@ async function forwardRequest(request: NextRequest, method: string) {
         status: resp.status,
         headers: {
           "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
+          "Cache-Control": "no-cache, no-transform",
           Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
         },
       });
     }
