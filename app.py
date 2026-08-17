@@ -1,5 +1,6 @@
-# app.py
+import os
 
+# app.py
 from flask import Flask
 
 from app_config import (  # noqa: F401  # test-patched names
@@ -17,6 +18,12 @@ from app_config import (  # noqa: F401  # test-patched names
 )
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.getenv(
+    "FLASK_SECRET_KEY",
+    os.urandom(32).hex(),
+)
+app.jinja_env.globals["ICON_DATA"] = __import__("icon_data").ICON_DATA
+app.jinja_env.globals["SIZE_MAP"] = __import__("icon_data").SIZE_MAP
 
 # ---------------------------------------------------------------------------
 # Register blueprints

@@ -1,0 +1,21 @@
+{# ============================================================
+   SummarizeMe — Icon Rendering Macro
+   ============================================================
+   Usage: {% from 'macros.html' import render_icon %}
+          {{ render_icon('bell', 'md') }}
+   ============================================================ #}
+
+{% macro render_icon(name, size='md', extra_class='', extra_id='', extra_style='') %}
+  {{ _render_icon(name, size, extra_class, extra_id, extra_style) }}
+{% endmacro %}
+
+{% macro _render_icon(name, size, extra_class, extra_id, extra_style) -%}
+  {%- set icon = ICON_DATA.get(name) -%}
+  {%- if icon -%}
+    {%- set size_class = SIZE_MAP.get(size, 'w-5 h-5') -%}
+    {%- set full_class = size_class ~ (' ' ~ extra_class if extra_class else '') -%}
+    <svg class="{{ full_class }}" {{ icon.attrs|safe }} viewBox="{{ icon.viewBox }}"{% if extra_id %} id="{{ extra_id }}"{% endif %}{% if extra_style %} style="{{ extra_style }}"{% endif %}>
+      <path d="{{ icon.path }}"/>
+    </svg>
+  {%- endif -%}
+{%- endmacro %}

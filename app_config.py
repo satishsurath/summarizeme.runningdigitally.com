@@ -14,7 +14,7 @@ from markupsafe import escape as _html_escape
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError  # noqa: F401  # re-exported for blueprints
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.sql import text
+from sqlalchemy.sql import text  # noqa: F401  # re-exported for blueprints
 
 from auth_utils import get_current_user
 
@@ -163,9 +163,7 @@ CHAT_VIDEO_SQL_TEMPLATES = {
 # Aliases for blueprint imports (lowercase / expected names)
 # ---------------------------------------------------------------------------
 # These ensure blueprints can import from app_config with the names they expect.
-logger = _logger  # blueprint alias
-shared_logger = _logger  # blueprint alias (used by api.py)
-chat_channel_sql_templates = CHAT_CHANNEL_SQL_TEMPLATES  # blueprint alias
-chat_video_sql_templates = CHAT_VIDEO_SQL_TEMPLATES  # blueprint alias
-text = text  # blueprint alias
-VLLM_EMBED_MODEL = VLLM_EMBED_MODEL  # blueprint alias
+shared_logger = _logger  # alias for api.py import
+logger = _logger
+chat_channel_sql_templates = CHAT_CHANNEL_SQL_TEMPLATES
+chat_video_sql_templates = CHAT_VIDEO_SQL_TEMPLATES

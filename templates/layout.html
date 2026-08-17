@@ -1,3 +1,4 @@
+{% from 'macros.html' import render_icon %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -87,66 +88,69 @@
                     SummarizeMe
                 </a>
                 
-                <!-- Mobile menu button -->
-                <div class="flex items-center space-x-4 md:hidden">
-                    <!-- Dark mode toggle for mobile -->
-                    <button id="darkModeToggleMobile" 
+                <!-- Desktop nav links -->
+                <div class="hidden md:flex items-center space-x-1">
+                    <a href="{{ url_for('main.index') }}" 
+                       class="nav-link {% if request.endpoint == 'main.index' %}active{% endif %}">
+                        Channels
+                    </a>
+                    <a href="{{ url_for('admin.admin_settings') }}" 
+                       class="nav-link {% if request.endpoint == 'admin.admin_settings' %}active{% endif %}">
+                        Admin
+                    </a>
+                </div>
+
+                <!-- Right side: notifications + dark mode + mobile menu -->
+                <div class="flex items-center space-x-2">
+                    <!-- Notifications dropdown -->
+                    <div class="relative">
+                        <button id="notificationBtn" type="button"
+                                class="icon-btn relative"
+                                aria-label="Notifications"
+                                aria-expanded="false"
+                                aria-controls="notificationDropdown">
+                            {{ render_icon('bell', 'md') }}
+                            <span id="notificationBadge" class="hidden absolute -top-1 -right-1 w-4 h-4 bg-primary-500 rounded-full text-xs text-white flex items-center justify-center"></span>
+                        </button>
+                        <!-- Notification Dropdown -->
+                        <div id="notificationDropdown" 
+                             class="hidden absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50"
+                             role="menu">
+                            <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Active Tasks</h3>
+                            </div>
+                            <div id="notificationList" class="max-h-64 overflow-y-auto">
+                                <div class="px-4 py-6 text-center text-gray-500 dark:text-gray-400 text-sm">
+                                    Loading...
+                                </div>
+                            </div>
+                            <div class="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
+                                <a href="{{ url_for('main.status_page') }}" 
+                                   class="text-sm text-primary-500 hover:text-primary-600 block"
+                                   role="menuitem">
+                                    View All Tasks →
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dark mode toggle for desktop -->
+                    <button id="darkModeToggle" type="button"
                             class="icon-btn"
                             aria-label="Toggle dark mode">
                         <div class="dark-mode-toggle">
-                            <!-- Sun icon -->
-                            <svg class="sun w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
-                                </path>
-                            </svg>
-                            <!-- Moon icon -->
-                            <svg class="moon w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z">
-                                </path>
-                            </svg>
+                            {{ render_icon('sun', 'lg', extra_class='sun') }}
+                            {{ render_icon('moon', 'lg', extra_class='moon') }}
                         </div>
                     </button>
                     
-                    <button id="mobile-menu-button" 
-                            class="icon-btn"
+                    <!-- Mobile menu button -->
+                    <button id="mobile-menu-button" type="button"
+                            class="icon-btn md:hidden"
                             aria-label="Open navigation menu"
                             aria-expanded="false"
                             aria-controls="mobile-menu">
-                        <svg class="w-6 h-6 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                        </svg>
-                    </button>
-                </div>
-
-                <!-- Desktop menu -->
-                <div class="hidden md:flex items-center space-x-8">
-                    <a href="{{ url_for('main.index') }}" 
-                       class="nav-link {% if request.endpoint == 'main.index' %}active{% endif %}">Home</a>
-                    <a href="{{ url_for('main.status_page') }}" 
-                       class="nav-link {% if request.endpoint == 'main.status_page' %}active{% endif %}">Check Status</a>
-                    <a href="{{ url_for('admin.admin_settings') }}" 
-                       class="nav-link {% if request.endpoint == 'admin.admin_settings' %}active{% endif %}">Admin</a>
-                    
-                    <!-- Dark mode toggle for desktop -->
-                    <button id="darkModeToggle" 
-                            class="icon-btn"
-                            aria-label="Toggle dark mode">
-                        <div class="dark-mode-toggle">
-                            <!-- Sun icon -->
-                            <svg class="sun w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
-                                </path>
-                            </svg>
-                            <!-- Moon icon -->
-                            <svg class="moon w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z">
-                                </path>
-                            </svg>
-                        </div>
+                        {{ render_icon('menu', 'lg', extra_class='text-gray-600 dark:text-gray-300') }}
                     </button>
                 </div>
             </div>
@@ -157,13 +161,22 @@
                  role="menu">
                 <a href="{{ url_for('main.index') }}" 
                    class="block px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                   role="menuitem">Home</a>
+                   role="menuitem">Channels</a>
                 <a href="{{ url_for('main.status_page') }}" 
                    class="block px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                   role="menuitem">Check Status</a>
+                   role="menuitem">Status</a>
                 <a href="{{ url_for('admin.admin_settings') }}" 
                    class="block px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                    role="menuitem">Admin</a>
+                <button id="darkModeToggleMobile" type="button"
+                        class="w-full text-left px-3 py-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                        aria-label="Toggle dark mode">
+                    <div class="dark-mode-toggle">
+                        {{ render_icon('sun', 'md', extra_class='sun') }}
+                        {{ render_icon('moon', 'md', extra_class='moon') }}
+                    </div>
+                    <span>Dark mode</span>
+                </button>
             </div>
         </nav>
     </header>
@@ -180,32 +193,14 @@
     <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
     <script src="{{ url_for('static', filename='js/loading.js') }}"></script>
     <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/notifications.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/icons.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/thumbnails.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
     {% block scripts %}{% endblock %}
 
-    <!-- Dark mode toggle and mobile menu logic -->
+    <!-- Dark mode toggle logic only — mobile menu and notification dropdown handled by notifications.js -->
     <script>
-        // Mobile menu toggle
-        const mobileMenuButton = document.getElementById('mobile-menu-button');
-        const mobileMenu = document.getElementById('mobile-menu');
-        
-        if (mobileMenuButton && mobileMenu) {
-            mobileMenuButton.addEventListener('click', () => {
-                const isOpen = !mobileMenu.classList.contains('hidden');
-                mobileMenu.classList.toggle('hidden');
-                mobileMenuButton.setAttribute('aria-expanded', !isOpen);
-                mobileMenuButton.setAttribute('aria-label', isOpen ? 'Open navigation menu' : 'Close navigation menu');
-            });
-
-            // Close mobile menu on Escape
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && !mobileMenu.classList.contains('hidden')) {
-                    mobileMenu.classList.add('hidden');
-                    mobileMenuButton.setAttribute('aria-expanded', 'false');
-                    mobileMenuButton.focus();
-                }
-            });
-        }
-
         // Dark mode toggle function
         function toggleDarkMode() {
             const isDark = document.documentElement.classList.toggle('dark');

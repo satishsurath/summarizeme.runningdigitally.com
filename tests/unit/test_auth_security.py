@@ -56,8 +56,8 @@ class TestDevModeAuthBypass:
 class TestSecurityHeaders:
     """Tests for security-related behavior."""
 
-    def test_cannot_provision_admin_via_dev_mode(self, with_db):
-        """Dev mode user should not be able to create admin users."""
+    def test_dev_mode_provisions_admin_role(self, with_db):
+        """Dev mode should auto-provision admin role for new users."""
         from app import app
         from auth_utils import get_current_user
 

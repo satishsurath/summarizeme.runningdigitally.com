@@ -4,6 +4,8 @@ import json
 import os
 from unittest.mock import patch
 
+import pytest
+
 
 class TestIndexPage:
     """Tests for the index page."""
@@ -156,3 +158,101 @@ class TestAdminRoutes:
         with patch("app.get_current_user", return_value=(None, None)):
             resp = client.post("/admin-add-user", data={"email": "new@test.com", "role": "reader"})
             assert resp.status_code == 403
+
+
+class TestActiveTasksApi:
+    """Tests for the /api/active-tasks notification endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def isolate_task_statuses(self, monkeypatch):
+        import app_config
+        import blueprints.api as api_module
+
+        download = {}
+        summarize = {}
+        monkeypatch.setattr(app_config, "download_statuses", download)
+        monkeypatch.setattr(app_config, "summarize_v2_statuses", summarize)
+        monkeypatch.setattr(api_module, "download_statuses", download)
+        monkeypatch.setattr(api_module, "summarize_v2_statuses", summarize)
+
+    def test_active_tasks_returns_empty_when_no_tasks(self, client, mock_vllm_response):
+        """Should return empty list when no active tasks exist."""
+        resp = client.get("/api/active-tasks")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert isinstance(data, list)
+        assert len(data) == 0
+
+    def test_active_tasks_includes_pending_tasks(self, client, mock_vllm_response):
+        """Should include pending tasks in the response."""
+        from app_config import download_statuses
+
+        download_statuses["dl_test123"] = {"status": "pending", "processed": 0, "total": 5, "errors": []}
+        try:
+            resp = client.get("/api/active-tasks")
+            assert resp.status_code == 200
+            data = json.loads(resp.data)
+            assert any(t["task_id"] == "dl_test123" for t in data)
+            assert any(t["status"] == "pending" for t in data)
+        finally:
+            del download_statuses["dl_test123"]
+
+    def test_active_tasks_includes_in_progress_tasks(self, client, mock_vllm_response):
+        """Should include in_progress tasks in the response."""
+        from app_config import summarize_v2_statuses
+
+        summarize_v2_statuses["summ_v2_abc"] = {"status": "in_progress", "processed": 2, "total": 5, "errors": []}
+        try:
+            resp = client.get("/api/active-tasks")
+            assert resp.status_code == 200
+            data = json.loads(resp.data)
+            assert any(t["task_id"] == "summ_v2_abc" for t in data)
+        finally:
+            del summarize_v2_statuses["summ_v2_abc"]
+
+    def test_active_tasks_excludes_completed_tasks(self, client, mock_vllm_response):
+        """Should exclude completed/failed tasks from the response."""
+        from app_config import download_statuses
+
+        download_statuses["dl_done"] = {"status": "completed", "processed": 5, "total": 5, "errors": []}
+        try:
+            resp = client.get("/api/active-tasks")
+            assert resp.status_code == 200
+            data = json.loads(resp.data)
+            assert not any(t["task_id"] == "dl_done" for t in data)
+        finally:
+            del download_statuses["dl_done"]
+
+    def test_active_tasks_excludes_failed_tasks(self, client, mock_vllm_response):
+        """Should exclude failed tasks from the response."""
+        from app_config import download_statuses
+
+        download_statuses["dl_fail"] = {"status": "failed", "processed": 2, "total": 5, "errors": ["error"]}
+        try:
+            resp = client.get("/api/active-tasks")
+            assert resp.status_code == 200
+            data = json.loads(resp.data)
+            assert not any(t["task_id"] == "dl_fail" for t in data)
+        finally:
+            del download_statuses["dl_fail"]
+
+    def test_active_tasks_response_has_required_fields(self, client, mock_vllm_response):
+        """Each active task should have task_id, name, status, processed, total."""
+        from app_config import download_statuses
+
+        download_statuses["dl_test"] = {"status": "in_progress", "processed": 3, "total": 10, "errors": []}
+        try:
+            resp = client.get("/api/active-tasks")
+            assert resp.status_code == 200
+            data = json.loads(resp.data)
+            task = next(t for t in data if t["task_id"] == "dl_test")
+            assert "task_id" in task
+            assert "name" in task
+            assert "status" in task
+            assert "processed" in task
+            assert "total" in task
+            assert task["name"] == "Download: dl_test"
+            assert task["processed"] == 3
+            assert task["total"] == 10
+        finally:
+            del download_statuses["dl_test"]
