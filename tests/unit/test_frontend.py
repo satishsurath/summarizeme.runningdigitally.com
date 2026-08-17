@@ -757,11 +757,31 @@ class TestChatUI:
     def test_video_chat_uses_chat_ui(self, video_chat_html):
         assert "ChatUI" in video_chat_html
 
+    def test_channel_chat_initializes_in_scripts_block(self):
+        channel_chat_html = (TEMPLATES_DIR / "channel_chat.html").read_text()
+        assert "{% block scripts %}" in channel_chat_html
+        prefix = channel_chat_html.split("{% block scripts %}", 1)[0]
+        assert prefix.rstrip().endswith("{% endblock %}")
+
+    def test_video_chat_initializes_in_scripts_block(self):
+        video_chat_html = (TEMPLATES_DIR / "video_chat.html").read_text()
+        assert "{% block scripts %}" in video_chat_html
+        prefix = video_chat_html.split("{% block scripts %}", 1)[0]
+        assert prefix.rstrip().endswith("{% endblock %}")
+
     def test_chat_result_has_scroll(self, channel_chat_html):
         assert "overflow-y-auto" in channel_chat_html or "overflow" in channel_chat_html
 
     def test_chat_result_has_space_between_messages(self, channel_chat_html):
         assert "space-y-4" in channel_chat_html or "space-y" in channel_chat_html
+
+    def test_videos_selection_uses_checked_checkboxes(self):
+        videos_js = (STATIC_DIR / "js" / "videos.js").read_text()
+        assert ".videoCheckbox:checked" in videos_js
+
+    def test_videos_selection_uses_data_video_id(self):
+        videos_js = (STATIC_DIR / "js" / "videos.js").read_text()
+        assert "data-video-id" in videos_js
 
 
 class TestToastSecurity:

@@ -4,6 +4,8 @@ import json
 import os
 from unittest.mock import patch
 
+import pytest
+
 
 class TestIndexPage:
     """Tests for the index page."""
@@ -160,6 +162,18 @@ class TestAdminRoutes:
 
 class TestActiveTasksApi:
     """Tests for the /api/active-tasks notification endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def isolate_task_statuses(self, monkeypatch):
+        import app_config
+        import blueprints.api as api_module
+
+        download = {}
+        summarize = {}
+        monkeypatch.setattr(app_config, "download_statuses", download)
+        monkeypatch.setattr(app_config, "summarize_v2_statuses", summarize)
+        monkeypatch.setattr(api_module, "download_statuses", download)
+        monkeypatch.setattr(api_module, "summarize_v2_statuses", summarize)
 
     def test_active_tasks_returns_empty_when_no_tasks(self, client, mock_vllm_response):
         """Should return empty list when no active tasks exist."""
