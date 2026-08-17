@@ -161,7 +161,7 @@ CHAT_CHANNEL_SQL_TEMPLATES = {
 
 # Single base template for video queries (all keys share identical SQL)
 _CHAT_VIDEO_SQL_TEMPLATE = """
-    SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
+    SELECT content, 1 - (embedding <=> :q_emb) AS similarity
     FROM %(view)s WHERE source_id = :vid ORDER BY similarity DESC LIMIT 5
 """
 
