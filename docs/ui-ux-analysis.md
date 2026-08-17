@@ -392,6 +392,179 @@ The current UI is functional but has significant UX issues that create friction 
 - Service worker for offline
 - Preconnect to YouTube
 
+## Second Pass — Design System & Icon Analysis
+
+### Status Page → Notification Dropdown
+
+**Problem:** The status page is a dedicated route (`/status`) that shows active tasks.
+This is poor UX because:
+- Users don't proactively check status — they need to be notified when tasks complete/fail
+- The page is only useful when a task is running, but most of the time it's empty
+- It creates an extra navigation step to check on something that should be push-based
+
+**Solution:** Replace the dedicated status page with a notification bell in the nav:
+
+```
+Nav: [Logo] [Home] [Status ▼] [Admin] [🌙]
+
+Status Dropdown:
+┌─────────────────────────────────┐
+│ Active Tasks (2)                │
+├─────────────────────────────────┤
+│ ⏳ Downloading channel... 75%   │
+│ ✅ Summarize complete           │
+│ ❌ Error: vLLM timeout          │
+├─────────────────────────────────┤
+│ View All Tasks →                │
+└─────────────────────────────────┘
+```
+
+**Implementation:**
+- Replace `/status` link in nav with a bell icon dropdown
+- Add WebSocket/polling for real-time notifications
+- Store notifications in memory (or Redis for multi-worker)
+- Show badge count for unread notifications
+- Click notification to navigate to relevant page (e.g., click error → go to status page for details)
+- Auto-dismiss after 5 seconds for non-critical notifications
+- Keep `/status` as a fallback page for power users
+
+### Icon Analysis
+
+**Current State:**
+- Mixed icon sources: inline SVGs, heroicons, YouTube SVG sprite
+- Inconsistent sizing: `w-5 h-5`, `w-6 h-6`, hardcoded `w-5 h-5`
+- Inconsistent stroke widths: `stroke-width="2"` vs default
+- No icon system — icons are duplicated across templates and JS files
+- YouTube icon uses `<use>` with inline sprite defined at bottom of body
+- Some icons use `fill="currentColor"`, others use `fill` with hex colors
+
+**Issues Found:**
+| Icon | Location | Problem |
+|------|----------|---------|
+| Edit (pencil) | index.html, index.js | Different SVG paths in template vs JS |
+| Delete (trash) | index.html, index.js | Different SVG paths in template vs JS |
+| Refresh (arrow) | index.html, index.js | Different SVG paths in template vs JS |
+| Chat (message) | channel_chat.html, index.html | Different SVG paths |
+| YouTube play | index.html, index.js, channel_chat.html | 3 different implementations |
+| Dark mode toggle | layout.html | Duplicated for mobile and desktop |
+| Copy (clipboard) | summary_v2.html, transcript_v2.html | Duplicated inline SVG |
+| Chevron down | summary_v2.html, transcript_v2.html | Duplicated inline SVG |
+| Menu (hamburger) | layout.html | No aria-label |
+| Check/X status | status.html | Not implemented yet |
+
+**Recommendation:**
+1. Create a single icon system using a sprite sheet or icon font
+2. Use a consistent icon library (e.g., Heroicons, Lucide, or Phosphor)
+3. Define icon sizes as CSS classes: `.icon-sm`, `.icon-md`, `.icon-lg`
+4. Export icons as React/Vue components or template macros
+5. Use `fill="currentColor"` for all icons to support dark mode
+
+### Design System Issues
+
+**Color Palette:**
+- Primary: `#3b82f6` (blue-500) — only one custom color defined
+- No secondary color for accents
+- No success/warning/error color system (relies on Tailwind defaults)
+- No hover/active states defined beyond Tailwind defaults
+
+**Typography:**
+- No custom font — uses system fonts
+- Inconsistent font sizes: `text-2xl`, `text-3xl`, `text-xl` mixed
+- No font weight scale defined
+- No line-height customization
+
+**Spacing:**
+- Inconsistent padding: `p-6`, `px-4 py-2`, `px-6 py-4`
+- No spacing scale defined
+- Inconsistent gap values: `gap-4`, `space-x-2`, `space-x-4`
+
+**Shadows:**
+- Inconsistent shadow usage: `shadow-lg`, `shadow`, `shadow-sm`
+- No custom shadow for dark mode
+
+**Border Radius:**
+- Inconsistent: `rounded-lg`, `rounded-md`, no `rounded`
+- No custom radius scale
+
+**Recommendation:**
+1. Define a design system token file (colors, spacing, typography, shadows)
+2. Use CSS custom properties for theming
+3. Create reusable component classes (`.btn-primary`, `.card`, `.input`)
+4. Document the design system in a README or Storybook
+
+### Navigation Analysis
+
+**Current Nav:**
+```
+[Summarizeme]  [Home] [Check Status] [Admin] [🌙]
+```
+
+**Issues:**
+- "Summarizeme" — inconsistent capitalization (should be "SummarizeMe")
+- "Check Status" — should be "Status" (shorter, clearer)
+- No "Videos" link — users can't navigate to videos from home
+- No "Chat" link — chat is only accessible via channel list
+- Mobile menu has same 3 links — no improvement over desktop
+- No breadcrumb on sub-pages
+- No active state indicator on nav items
+
+**Recommended Nav:**
+```
+[SummarizeMe]  [Channels] [Videos] [Chat] [Admin] [🔔] [🌙]
+
+Channels: [Home] [Add Channel]
+Videos: [Channel Name] [Summarize] [Chat]
+Chat: [Channel Name] [Video Name] [Data Source]
+Admin: [Users] [Settings] [Logs]
+```
+
+### Visual Hierarchy Issues
+
+**Problems:**
+- All cards have equal visual weight — no clear hierarchy
+- No clear primary/secondary/tertiary actions
+- Buttons all use same style — no distinction between primary/secondary/danger
+- No empty states — pages show "Loading..." or blank tables
+- No illustrations or visual cues for empty states
+
+**Recommendation:**
+1. Define action hierarchy: Primary (blue), Secondary (gray), Danger (red)
+2. Add empty state illustrations for all pages
+3. Use visual weight to guide user attention
+4. Add progress indicators for multi-step flows
+5. Use consistent card styling with clear hierarchy
+
+### Accessibility Gaps
+
+**Critical:**
+- No ARIA labels on icon-only buttons (edit, delete, refresh, chat)
+- No skip navigation link
+- No focus indicators on custom buttons
+- Color-only status indicators (no icons/text for success/error)
+- No screen reader announcements for dynamic content
+
+**Recommendation:**
+1. Add `aria-label` to all icon buttons
+2. Add skip navigation link
+3. Add focus indicators (`:focus-visible`)
+4. Add `aria-live` regions for dynamic content
+5. Add `role="alert"` for error messages
+
+### Performance Concerns
+
+**Current:**
+- Tailwind CDN: ~300KB CSS (loads entire framework)
+- No image optimization (YouTube thumbnails not loaded)
+- No lazy loading for images
+- Inline scripts block rendering
+- No service worker
+
+**Recommendation:**
+1. Use Tailwind CLI with purge config (reduces CSS to ~10KB)
+2. Lazy load YouTube thumbnails
+3. Add service worker for offline support
+4. Defer non-critical JS
+5. Preconnect to YouTube API
 ---
 
 ## Prioritized Recommendations
