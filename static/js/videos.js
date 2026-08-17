@@ -222,6 +222,10 @@ document.addEventListener("DOMContentLoaded", () => {
         </a>
       `;
 
+      const thumbnailUrl = ThumbnailSystem.getBestUrl(v.video_id);
+      const thumbPlaceholder = `<div class="w-16 h-9 rounded bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0"><svg class="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>`;
+      const thumbImg = thumbnailUrl ? `<img src="${thumbnailUrl}" alt="Thumbnail" class="w-16 h-9 rounded object-cover flex-shrink-0" loading="lazy" onerror="this.outerHTML="">` : thumbPlaceholder;
+
       html += `
         <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
           <td class="px-6 py-4">
@@ -230,7 +234,12 @@ document.addEventListener("DOMContentLoaded", () => {
                    id="check_${v.video_id}" 
             />
           </td>
-          <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">${v.title}</td>
+          <td class="px-6 py-4">
+            <div class="flex items-center gap-3">
+              ${thumbImg}
+              <span class="text-sm text-gray-900 dark:text-gray-100 truncate">${v.title}</span>
+            </div>
+          </td>
           <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">${v.upload_date}</td>
           <td class="px-6 py-4 text-sm">${summariesList}</td>
           <td class="px-6 py-4 text-sm">${transcriptLink}</td>
@@ -239,10 +248,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
       cardHtml += `
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-          <div class="flex items-start justify-between gap-2 mb-3">
-            <label class="flex items-center gap-2 cursor-pointer">
+          <div class="flex items-start gap-3 mb-3">
+            ${thumbImg}
+            <label class="flex items-start gap-2 cursor-pointer flex-1 min-w-0">
               <input type="checkbox" 
-                     class="videoCheckbox w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                     class="videoCheckbox w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 mt-1"
                      id="check_${v.video_id}" 
               />
               <span class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">${v.title}</span>
