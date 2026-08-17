@@ -332,8 +332,11 @@ def api_refresh_channel():
 
         human_playlist_name = folder_obj.folder_name
         original_playlist_id = folder_obj.original_playlist_id or human_playlist_name
-        channel_url = f"https://www.youtube.com/playlist?list={original_playlist_id}"
-
+        content_type = folder_obj.content_type or "playlist"
+        if content_type == "video":
+            channel_url = f"https://www.youtube.com/watch?v={original_playlist_id}"
+        else:
+            channel_url = f"https://www.youtube.com/playlist?list={original_playlist_id}"
         task_id = task_store.create_task("download", {"channel_name": channel_name_input})
 
         def run_refresh():

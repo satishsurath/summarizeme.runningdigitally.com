@@ -47,8 +47,16 @@ def download_channel_transcripts(channel_url, task_store, task_id):
         # Use existing folder name if exists, else use channel_id
         existing_folder = session.query(VideoFolder).filter_by(original_playlist_id=channel_id).first()
 
-        # Use the existing (human-friendly) folder name, or default to channel_id.
+        # Determine content type from URL
+        is_video_url = "youtube.com/watch" in channel_url or "youtu.be/" in channel_url
+        content_type = "video" if is_video_url else "playlist"
+
         human_playlist_name = existing_folder.folder_name if existing_folder else channel_id
+
+        # Set content_type on existing folder or use default
+        if existing_folder:
+            existing_folder.content_type = content_type
+            session.commit()
 
         processed_count = 0
         new_count = 0
@@ -102,7 +110,7 @@ def download_channel_transcripts(channel_url, task_store, task_id):
                 video_obj.transcript_no_ts = "".join(t.get("text", "") for t in parsed if t.get("text"))
 
                 # Ensure folder association
-                ensure_folder_association(session, video_id, channel_id, human_playlist_name)
+                ensure_folder_association(session, video_id, channel_id, human_playlist_name, content_type)
 
                 new_count += 1
                 processed_count += 1
@@ -137,7 +145,7 @@ def download_channel_transcripts(channel_url, task_store, task_id):
         session.close()
 
 
-def ensure_folder_association(session, video_id, channel_id, folder_name):
+def ensure_folder_association(session, video_id, channel_id, folder_name, content_type="playlist"):
     """
     Helper to ensure there's a row in video_folders linking this video_id
     to the channel/playlist (folder_name + original_playlist_id).
@@ -148,6 +156,7 @@ def ensure_folder_association(session, video_id, channel_id, folder_name):
             folder_name=folder_name,
             original_playlist_id=channel_id,
             video_id=video_id,
+            content_type=content_type,
             last_modified=datetime.now(UTC),
         )
         session.add(folder_assoc)

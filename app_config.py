@@ -147,7 +147,15 @@ CHAT_CHANNEL_SQL_TEMPLATES = {
     "public.summaries_v2_concise_summary_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
     "public.summaries_v2_key_topics_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
     "public.summaries_v2_important_takeaways_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
-    "public.videos_transcript_no_ts_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
+    "public.videos_transcript_no_ts_embedding": """
+    SELECT ev.content, ev.source_id AS video_id, v.title AS video_title,
+           1 - (ev.embedding <=> :q_emb) AS similarity
+    FROM %(view)s ev
+    JOIN video_folders vf ON ev.source_id = vf.video_id
+    JOIN videos v        ON ev.source_id = v.video_id
+    WHERE vf.folder_name = :chan
+    ORDER BY similarity DESC LIMIT 5
+""",
 }
 
 

@@ -98,7 +98,7 @@ def ensure_destination_table(cur, conn, table_name):
     # Extract table name without schema prefix for index naming
     table_only = table_name.split(".")[-1] if "." in table_name else table_name
     index_name = f"{table_only}_embedding_idx"
-    table_ref = sql.Identifier(table_name)
+    table_ref = sql.Identifier(table_only)
     index_ref = sql.Identifier(index_name)
     source_id_idx_ref = sql.Identifier(f"{table_only}_source_id_idx")
     cur.execute(
@@ -125,13 +125,13 @@ def ensure_destination_table(cur, conn, table_name):
 def upsert_embedding(cur, conn, table_name, source_id, source_table, source_column, chunk_order, content, embedding):
     """Insert or update an embedding."""
     from psycopg2 import sql
-
+    table_only = table_name.split(".")[-1] if "." in table_name else table_name
     cur.execute(
         sql.SQL(
             "INSERT INTO {} (source_id, source_table, source_column, chunk_order, content, embedding) "
             "VALUES (%s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (source_id, source_table, source_column, chunk_order) DO NOTHING"
-        ).format(sql.Identifier(table_name)),
+        ).format(sql.Identifier(table_only)),
         (source_id, source_table, source_column, chunk_order, content, embedding),
     )
 
@@ -160,12 +160,14 @@ def process_column(
     # Get all rows that need processing
     from psycopg2 import sql
 
-    table_ref = sql.Identifier(table_name)
+    # Strip schema prefix for sql.Identifier (dots are treated as part of the name)
+    table_only = table_name.split(".")[-1] if "." in table_name else table_name
+    table_ref = sql.Identifier(table_only)
     id_col_ref = sql.Identifier(id_column)
     col_ref = sql.Identifier(column_name)
-    dest_table_ref = sql.Identifier(dest_table)
+    dest_table_ref = sql.Identifier(dest_table.split(".")[-1] if "." in dest_table else dest_table)
     cur.execute(
-        sql.SQL("SELECT {} {} FROM {} WHERE {}::VARCHAR NOT IN (SELECT DISTINCT source_id FROM {}) LIMIT 100;").format(
+        sql.SQL("SELECT {}, {} FROM {} WHERE {}::VARCHAR NOT IN (SELECT DISTINCT source_id FROM {}) LIMIT 100;").format(
             id_col_ref, col_ref, table_ref, id_col_ref, dest_table_ref
         )
     )

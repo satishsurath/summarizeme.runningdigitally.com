@@ -123,7 +123,7 @@ function TaskDetailModal({
               </p>
             </div>
           </div>
-          {task.errors.length > 0 && (
+          {task.errors && task.errors.length > 0 && (
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Errors</label>
               <ul className="mt-1 space-y-1">
@@ -138,13 +138,13 @@ function TaskDetailModal({
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Created</label>
             <p className="text-sm text-gray-900 dark:text-gray-100">
-              {new Date(task.created_at * 1000).toLocaleString()}
+              {task.created_at ? new Date(task.created_at * 1000).toLocaleString() : "N/A"}
             </p>
           </div>
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Updated</label>
             <p className="text-sm text-gray-900 dark:text-gray-100">
-              {new Date(task.updated_at * 1000).toLocaleString()}
+              {task.updated_at ? new Date(task.updated_at * 1000).toLocaleString() : "N/A"}
             </p>
           </div>
         </div>
@@ -274,7 +274,7 @@ export default function StatusPage() {
                   </span>
                 </div>
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {new Date(task.updated_at * 1000).toLocaleTimeString()}
+                  {task.updated_at ? new Date(task.updated_at * 1000).toLocaleTimeString() : "N/A"}
                 </span>
               </div>
               <div className="flex items-center gap-3">
@@ -285,7 +285,7 @@ export default function StatusPage() {
                   {task.processed}/{task.total}
                 </span>
               </div>
-              {task.errors.length > 0 && (
+              {task.errors && task.errors.length > 0 && (
                 <p className="text-xs text-red-600 dark:text-red-400 mt-1 truncate">
                   {task.errors[0]}
                 </p>
