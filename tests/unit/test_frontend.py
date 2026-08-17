@@ -136,6 +136,10 @@ class TestLoadingSystem:
     def test_map_for_tracking(self, loading_source):
         assert "Map" in loading_source or "activeLoads" in loading_source
 
+    def test_end_warns_on_missing_start(self, loading_source):
+        """end() should warn when called without matching start()."""
+        assert "console.warn" in loading_source
+
 
 class TestCSSComponents:
     """Validate components.css has expected classes."""
@@ -170,11 +174,23 @@ class TestCSSComponents:
     def test_exists(self, components_css, classname):
         assert classname in components_css
 
+    def test_no_apply_directives(self, components_css):
+        """Components must use explicit CSS, not @apply (CDN compatibility)."""
+        css_lines = [
+            line
+            for line in components_css.splitlines()
+            if line.strip() and not line.strip().startswith("/*") and not line.strip().startswith("*")
+        ]
+        assert not any("@apply" in line for line in css_lines)
+
     def test_dark_mode(self, components_css):
-        assert components_css.count("dark:") > 5
+        assert ".dark " in components_css or ".dark." in components_css
 
     def test_focus_rings(self, components_css):
-        assert "focus:ring" in components_css or "focus-ring" in components_css
+        assert "box-shadow" in components_css and "outline" in components_css
+
+    def test_no_important_rules(self, components_css):
+        assert "!important" not in components_css
 
 
 class TestIconSizing:
@@ -252,6 +268,14 @@ class TestSonarQuality:
     def loading_source(self):
         return (STATIC_DIR / "js" / "loading.js").read_text()
 
+    @pytest.fixture
+    def index_source(self):
+        return (STATIC_DIR / "js" / "index.js").read_text()
+
+    @pytest.fixture
+    def status_source(self):
+        return (STATIC_DIR / "js" / "status.js").read_text()
+
     def test_no_empty_catch_blocks(self, toast_source, loading_source):
         for _n, source in [("toast.js", toast_source), ("loading.js", loading_source)]:
             for block in re.findall(r"catch\s*\([^)]*\)\s*\{([^}]*)\}", source):
@@ -269,6 +293,15 @@ class TestSonarQuality:
                     continue
                 assert var[0].islower() or var.isupper()
 
+    def test_no_console_log_in_core(self, toast_source, loading_source):
+        """Core toast/loading should not use console.log."""
+        for _n, source in [("toast.js", toast_source), ("loading.js", loading_source)]:
+            assert "console.log" not in source
+
+    def test_loading_end_warns(self, loading_source):
+        """loading.end() should warn on missing start()."""
+        assert "console.warn" in loading_source
+
 
 class TestCSSQuality:
     """Validate CSS quality and consistency."""
@@ -285,8 +318,14 @@ class TestCSSQuality:
         for _n, css in [("components.css", components_css), ("icons.css", icons_css)]:
             assert "!important" not in css
 
-    def test_components_use_tailwind(self, components_css):
-        assert "@apply" in components_css
+    def test_components_use_explicit_css(self, components_css):
+        """Components must use explicit CSS for CDN compatibility."""
+        css_lines = [
+            line
+            for line in components_css.splitlines()
+            if line.strip() and not line.strip().startswith("/*") and not line.strip().startswith("*")
+        ]
+        assert not any("@apply" in line for line in css_lines)
 
     def test_icons_have_consistent_sizes(self, icons_css):
         sizes = re.findall(r"w-(\d+)\s+h-(\d+)", icons_css)
