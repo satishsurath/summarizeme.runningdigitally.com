@@ -773,7 +773,7 @@ class TestToastSecurity:
 
     def test_no_inline_onclick(self, toast_source):
         """Toast dismiss should use addEventListener, not inline onclick (XSS prevention)."""
-        assert 'onclick=' not in toast_source
+        assert "onclick=" not in toast_source
 
     def test_uses_addeventlistener(self, toast_source):
         """Toast dismiss should use addEventListener for security."""
@@ -809,7 +809,7 @@ class TestToastSecurity:
                 break
         assert dismiss_all_idx is not None
         # Check next few lines for container guard
-        snippet = "\n".join(lines[dismiss_all_idx:dismiss_all_idx + 5])
+        snippet = "\n".join(lines[dismiss_all_idx : dismiss_all_idx + 5])
         assert "this.container" in snippet
 
 
@@ -852,9 +852,11 @@ class TestLayoutAccessibility:
     def test_buttons_have_type_button(self, layout):
         """All buttons should have type='button' to prevent accidental form submission."""
         import re
-        buttons = re.findall(r'<button[^>]*>', layout)
+
+        buttons = re.findall(r"<button[^>]*>", layout)
         for btn in buttons:
             assert 'type="button"' in btn or "type='button'" in btn, f"Button missing type='button': {btn}"
+
     def test_notification_dropdown_keyboard_nav(self, notifications_js):
         """Notification dropdown should have keyboard navigation."""
         assert "Escape" in notifications_js or "keydown" in notifications_js
