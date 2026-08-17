@@ -43,6 +43,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       FLASK_ENV: development
       DEV_AUTH_ENABLED: "true"
+      NEXT_API_URL: http://localhost:5001
     depends_on:
       db:
         condition: service_healthy
@@ -52,3 +53,20 @@ services:
       - .:/app
     command: flask run --host=0.0.0.0 --port=5000 --reload
 
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: builder
+      args:
+        NEXT_API_URL: http://localhost:5001
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_API_URL: http://app:5000
+    depends_on:
+      - app
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    command: ["npx", "next", "dev", "-p", "3000", "-H", "0.0.0.0"]

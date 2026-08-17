@@ -3,7 +3,6 @@
 import datetime
 import re
 import threading
-import uuid
 
 import requests
 from flask import Blueprint, jsonify, request
@@ -16,9 +15,8 @@ from app_config import (
     build_prompts_for_chunk,
     chunk_transcript,
     download_channel_transcripts,
-    download_statuses,
     require_role,
-    summarize_v2_statuses,
+    task_store,
     vllm_generate_chunk,
 )
 from app_config import (
@@ -27,15 +25,6 @@ from app_config import (
 from db.models import SummariesV2, Video, VideoFolder
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
-
-
-def _snapshot_status_items(statuses):
-    """Return a concrete snapshot of task entries for safer top-level iteration.
-
-    This protects against key insertions/removals while building task lists, but
-    nested status dict values may still be updated concurrently by background work.
-    """
-    return list(statuses.items())
 
 
 @api_bp.route("/channel/start", methods=["POST"])
@@ -47,17 +36,15 @@ def api_channel_start():
         return jsonify({"status": "error", "message": "No channel_url provided"}), 400
 
     channel_url = data["channel_url"].strip()
-    task_id = f"dl_{uuid.uuid4().hex[:8]}"
-    download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
+    task_id = task_store.create_task("download", {"channel_url": channel_url})
 
     def run_download():
         try:
-            download_channel_transcripts(channel_url, download_statuses[task_id])
-            download_statuses[task_id]["status"] = "completed"
+            download_channel_transcripts(channel_url, task_store, task_id)
+            task_store.update_task(task_id, status="completed")
         except Exception as e:
             logger.error("Error in channel download: %s", e)
-            download_statuses[task_id]["status"] = "failed"
-            download_statuses[task_id]["errors"].append(str(e))
+            task_store.update_task(task_id, status="failed", errors=[str(e)])
 
     thread = threading.Thread(target=run_download, daemon=True)
     thread.start()
@@ -68,10 +55,10 @@ def api_channel_start():
 @api_bp.route("/channel/status/<task_id>", methods=["GET"])
 def api_channel_status(task_id):
     """Returns the status of an ongoing channel download process."""
-    status = download_statuses.get(task_id)
-    if not status:
+    task = task_store.get_task(task_id)
+    if not task:
         return jsonify({"status": "error", "message": "Invalid task ID"}), 404
-    return jsonify(status)
+    return jsonify(task.to_dict())
 
 
 @api_bp.route("/videos/<channel_name>", methods=["GET"])
@@ -151,8 +138,11 @@ def api_summarize_v2():
     if len(video_ids) > 50:
         return jsonify({"status": "error", "message": "Maximum 50 videos per request"}), 400
 
-    task_id = f"summ_v2_{uuid.uuid4().hex[:8]}"
-    summarize_v2_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": len(video_ids), "errors": []}
+    task_id = task_store.create_task(
+        "summarize",
+        {"channel_name": channel_name, "model": model_name},
+        total=len(video_ids),
+    )
 
     def run_summarize_v2():
         session = SessionLocal()
@@ -173,16 +163,18 @@ def api_summarize_v2():
                 if existing_summary:
                     logger.info("[SummariesV2] Skipping %s, summary already exists for model=%r.", vid, model_name)
                     processed_count += 1
-                    summarize_v2_statuses[task_id]["processed"] = processed_count
+                    task_store.update_task(task_id, processed=processed_count)
                     continue
 
                 video_obj = session.query(Video).filter_by(video_id=vid).first()
                 if not video_obj:
                     msg = f"Video {vid} not found in DB."
                     logger.error(msg)
-                    summarize_v2_statuses[task_id]["errors"].append(msg)
+                    task = task_store.get_task(task_id)
+                    err_list = ([*task.errors, msg]) if task else [msg]
+                    task_store.update_task(task_id, errors=err_list)
                     processed_count += 1
-                    summarize_v2_statuses[task_id]["processed"] = processed_count
+                    task_store.update_task(task_id, processed=processed_count)
                     continue
 
                 transcript = video_obj.transcript_no_ts or ""
@@ -218,13 +210,12 @@ def api_summarize_v2():
 
                 logger.info("[SummariesV2] Inserted for video=%s, model=%s", vid, model_name)
                 processed_count += 1
-                summarize_v2_statuses[task_id]["processed"] = processed_count
+                task_store.update_task(task_id, processed=processed_count)
 
-            summarize_v2_statuses[task_id]["status"] = "completed"
+            task_store.update_task(task_id, status="completed")
         except Exception as e:
             logger.error("[SummariesV2] Error: %s", e)
-            summarize_v2_statuses[task_id]["status"] = "failed"
-            summarize_v2_statuses[task_id]["errors"].append(str(e))
+            task_store.update_task(task_id, status="failed", errors=[str(e)])
         finally:
             session.close()
 
@@ -237,36 +228,26 @@ def api_summarize_v2():
 @api_bp.route("/summarize_v2/status/<task_id>", methods=["GET"])
 def api_summarize_v2_status(task_id):
     """Returns progress for the SummariesV2 generation task."""
-    status = summarize_v2_statuses.get(task_id)
-    if not status:
+    task = task_store.get_task(task_id)
+    if not task:
         return jsonify({"status": "error", "message": "Invalid task ID"}), 404
-    return jsonify(status)
+    return jsonify(task.to_dict())
 
 
 @api_bp.route("/active-tasks", methods=["GET"])
 def api_active_tasks():
     """Return list of active (pending/running) tasks for the notification dropdown."""
     active = []
-    for task_id, status in _snapshot_status_items(download_statuses):
-        if status.get("status") in ("pending", "in_progress"):
+    for task in task_store.list_tasks():
+        if task.status in ("pending", "in_progress"):
+            name_map = {"download": "Download", "summarize": "Summarize"}
             active.append(
                 {
-                    "task_id": task_id,
-                    "name": f"Download: {task_id}",
-                    "status": status["status"],
-                    "processed": status.get("processed", 0),
-                    "total": status.get("total", 0),
-                }
-            )
-    for task_id, status in _snapshot_status_items(summarize_v2_statuses):
-        if status.get("status") in ("pending", "in_progress"):
-            active.append(
-                {
-                    "task_id": task_id,
-                    "name": f"Summarize: {task_id}",
-                    "status": status["status"],
-                    "processed": status.get("processed", 0),
-                    "total": status.get("total", 0),
+                    "task_id": task.task_id,
+                    "name": f"{name_map.get(task.task_type, task.task_type)}: {task.task_id}",
+                    "status": task.status,
+                    "processed": task.processed,
+                    "total": task.total,
                 }
             )
     return jsonify(active)
@@ -353,17 +334,15 @@ def api_refresh_channel():
         original_playlist_id = folder_obj.original_playlist_id or human_playlist_name
         channel_url = f"https://www.youtube.com/playlist?list={original_playlist_id}"
 
-        task_id = f"refresh_{uuid.uuid4().hex[:8]}"
-        download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
+        task_id = task_store.create_task("download", {"channel_name": channel_name_input})
 
         def run_refresh():
             try:
-                download_channel_transcripts(channel_url, download_statuses[task_id])
-                download_statuses[task_id]["status"] = "completed"
+                download_channel_transcripts(channel_url, task_store, task_id)
+                task_store.update_task(task_id, status="completed")
             except Exception as e:
                 logger.error("Error in channel refresh: %s", e)
-                download_statuses[task_id]["status"] = "failed"
-                download_statuses[task_id]["errors"].append(str(e))
+                task_store.update_task(task_id, status="failed", errors=[str(e)])
 
         thread = threading.Thread(target=run_refresh, daemon=True)
         thread.start()
@@ -413,33 +392,20 @@ def api_delete_channel():
 
 @api_bp.route("/all-tasks", methods=["GET"])
 def api_all_tasks():
-    """Return a list of all tasks (downloads and summaries) in a single JSON array."""
     all_tasks = []
-
-    for task_id, stat in _snapshot_status_items(download_statuses):
+    for task in task_store.list_tasks():
         all_tasks.append(
             {
-                "task_id": task_id,
-                "type": "download",
-                "status": stat["status"],
-                "processed": stat["processed"],
-                "total": stat["total"],
-                "errors": stat["errors"],
+                "task_id": task.task_id,
+                "type": task.task_type,
+                "status": task.status,
+                "processed": task.processed,
+                "total": task.total,
+                "errors": task.errors,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
             }
         )
-
-    for task_id, stat in _snapshot_status_items(summarize_v2_statuses):
-        all_tasks.append(
-            {
-                "task_id": task_id,
-                "type": "summarize",
-                "status": stat["status"],
-                "processed": stat["processed"],
-                "total": stat["total"],
-                "errors": stat["errors"],
-            }
-        )
-
     return jsonify(all_tasks)
 
 

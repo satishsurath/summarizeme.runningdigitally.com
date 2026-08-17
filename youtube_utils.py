@@ -25,21 +25,23 @@ except ImportError:
     SessionLocal = sessionmaker(bind=engine)
 
 
-def download_channel_transcripts(channel_url, status_dict):
+def download_channel_transcripts(channel_url, task_store, task_id):
     """
     Download transcripts for all videos in a channel/playlist.
 
     Args:
         channel_url (str): YouTube channel or playlist URL.
-        status_dict (dict): Dict with keys: status, processed, total, errors.
+        task_store (TaskStore): Task store instance for updating progress.
+        task_id (str): Task ID to update.
     """
     session = SessionLocal()
+    errors: list[str] = []
     try:
         # Get the immutable channel/playlist id and video list from YouTube
         channel_id, videos = get_channel_and_videos(channel_url)
 
         total_videos = len(videos)
-        status_dict["total"] = total_videos
+        task_store.update_task(task_id, total=total_videos)
         processed_count = 0
 
         # Use existing folder name if exists, else use channel_id
@@ -58,7 +60,7 @@ def download_channel_transcripts(channel_url, status_dict):
                 logger.info(f"[{i + 1}/{len(videos)}] Processing: {video_id} - {video_title[:30]}")
                 if not video_id:
                     logger.error(f"Skipping video with None video_id: {video}")
-                    status_dict["errors"].append(f"None video_id at index {i}")
+                    errors.append(f"None video_id at index {i}")
                     processed_count += 1
                     continue
 
@@ -75,7 +77,7 @@ def download_channel_transcripts(channel_url, status_dict):
                 logger.info(f"  Got {len(parsed)} transcript entries for {video_id}")
 
                 if not parsed:
-                    status_dict["errors"].append(f"Failed to get transcript for {video_id} ({video_title[:30]}...)")
+                    errors.append(f"Failed to get transcript for {video_id} ({video_title[:30]}...)")
                     processed_count += 1
                     continue
 
@@ -106,14 +108,14 @@ def download_channel_transcripts(channel_url, status_dict):
                 processed_count += 1
 
                 # Update progress
-                status_dict["processed"] = processed_count
+                task_store.update_task(task_id, processed=processed_count)
 
                 logger.info(f"[{processed_count}/{total_videos}] Downloaded: {video_title[:50]}...")
             except Exception as e:
                 import traceback
 
                 logger.error(f"Error processing video {video_id}: {e} - {traceback.format_exc()}")
-                status_dict["errors"].append(f"{video_id}: {e}")
+                errors.append(f"{video_id}: {e}")
                 processed_count += 1
 
         session.commit()
@@ -127,8 +129,10 @@ def download_channel_transcripts(channel_url, status_dict):
         import traceback
 
         session.rollback()
-        status_dict["errors"].append(str(e))
+        errors.append(str(e))
         logger.error(f"Error downloading channel: {e} - {traceback.format_exc()}")
+        task_store.update_task(task_id, errors=errors)
+        raise
     finally:
         session.close()
 

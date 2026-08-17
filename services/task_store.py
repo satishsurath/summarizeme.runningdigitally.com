@@ -1,0 +1,303 @@
+"""Redis-backed task store for background job tracking.
+
+Replaces the in-memory dict-based status tracking with a persistent,
+Redis-backed store that survives process restarts and works across
+multiple gunicorn workers.
+
+Usage:
+    from services.task_store import TaskStore
+
+    store = TaskStore()
+
+    # Create a task
+    task_id = store.create_task("download", {"channel_url": "https://..."}, total=10)
+
+    # Update progress
+    store.update_task(task_id, status="in_progress", processed=5)
+    store.update_task(task_id, status="completed", processed=10)
+
+    # Query
+    task = store.get_task(task_id)
+    active = store.list_tasks(status="in_progress")
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from dataclasses import asdict, dataclass, field
+from enum import StrEnum
+
+import redis
+
+logger = logging.getLogger(__name__)
+
+
+class TaskStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass
+class TaskInfo:
+    """Represents a background task."""
+
+    task_id: str
+    task_type: str  # "download" or "summarize"
+    status: str  # TaskStatus value
+    created_at: float  # Unix timestamp
+    updated_at: float  # Unix timestamp
+    total: int = 0
+    processed: int = 0
+    errors: list = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+
+    @property
+    def progress_percent(self) -> float:
+        if self.total <= 0:
+            return 0.0
+        return (self.processed / self.total) * 100.0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @staticmethod
+    def from_dict(data: dict) -> TaskInfo:
+        return TaskInfo(**data)
+
+
+class TaskStore:
+    """Redis-backed task store.
+
+    Stores tasks as JSON objects in Redis with TTL-based expiration
+    for completed/failed tasks.
+    """
+
+    # Redis key prefixes
+    _TASK_KEY_PREFIX = "task:"
+    _ACTIVE_SET = "tasks:active"
+    _COMPLETED_SET = "tasks:completed"
+    _FAILED_SET = "tasks:failed"
+
+    # TTL for completed/failed tasks (24 hours)
+    _COMPLETED_TTL = 86400
+
+    def __init__(self, redis_client: redis.Redis | None = None):
+        if redis_client is not None:
+            self._client = redis_client
+        else:
+            redis_url = "redis://localhost:6379/0"
+            env_url = __import__("os").environ.get("REDIS_URL")
+            if env_url:
+                redis_url = env_url
+            try:
+                self._client = redis.from_url(redis_url, decode_responses=True)
+                self._client.ping()
+                logger.info("TaskStore connected to Redis at %s", redis_url)
+            except redis.ConnectionError:
+                logger.warning(
+                    "Redis unavailable at %s, task store will be read-only",
+                    redis_url,
+                )
+                self._client = _ReadOnlyRedis()
+
+    # ------------------------------------------------------------------
+    # Core operations
+    # ------------------------------------------------------------------
+
+    def create_task(
+        self,
+        task_type: str,
+        metadata: dict | None = None,
+        total: int = 0,
+    ) -> str:
+        """Create a new task and return its ID."""
+        task_id = f"{task_type[:2]}_{int(time.time() * 1000)}"
+        now = time.time()
+        task = TaskInfo(
+            task_id=task_id,
+            task_type=task_type,
+            status=TaskStatus.PENDING.value,
+            created_at=now,
+            updated_at=now,
+            total=total,
+            processed=0,
+            errors=[],
+            metadata=metadata or {},
+        )
+        self._save_task(task)
+        self._client.sadd(self._ACTIVE_SET, task_id)
+        logger.info("Created task %s (type=%s, total=%d)", task_id, task_type, total)
+        return task_id
+
+    def get_task(self, task_id: str) -> TaskInfo | None:
+        """Get a task by ID, or None if not found."""
+        raw = self._client.get(f"{self._TASK_KEY_PREFIX}{task_id}")
+        if raw is None:
+            return None
+        return TaskInfo.from_dict(json.loads(str(raw)))
+
+    def update_task(
+        self,
+        task_id: str,
+        status: str | None = None,
+        processed: int | None = None,
+        total: int | None = None,
+        errors: list | None = None,
+        metadata: dict | None = None,
+    ) -> bool:
+        """Update task fields. Returns True if task exists."""
+        task = self.get_task(task_id)
+        if task is None:
+            return False
+
+        if status is not None:
+            task.status = status
+            self._client.srem(self._ACTIVE_SET, task_id)
+            if status in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
+                target_set = self._COMPLETED_SET if status == TaskStatus.COMPLETED.value else self._FAILED_SET
+                self._client.sadd(target_set, task_id)
+                self._client.expire(f"{self._TASK_KEY_PREFIX}{task_id}", self._COMPLETED_TTL)
+            else:
+                self._client.sadd(self._ACTIVE_SET, task_id)
+                self._client.persist(f"{self._TASK_KEY_PREFIX}{task_id}")
+
+        if processed is not None:
+            task.processed = processed
+        if total is not None:
+            task.total = total
+        if errors is not None:
+            task.errors = errors
+        if metadata is not None:
+            task.metadata.update(metadata)
+
+        task.updated_at = time.time()
+        self._save_task(task)
+        return True
+
+    def delete_task(self, task_id: str) -> bool:
+        """Permanently delete a task."""
+        task = self.get_task(task_id)
+        if task is None:
+            return False
+        self._client.delete(f"{self._TASK_KEY_PREFIX}{task_id}")
+        self._client.srem(self._ACTIVE_SET, task_id)
+        self._client.srem(self._COMPLETED_SET, task_id)
+        self._client.srem(self._FAILED_SET, task_id)
+        return True
+
+    def list_tasks(
+        self,
+        status: str | None = None,
+        task_type: str | None = None,
+    ) -> list:
+        """List tasks, optionally filtered by status or type."""
+        results: list = []
+
+        sets_to_scan: list = []
+        if status is None:
+            sets_to_scan = [
+                self._ACTIVE_SET,
+                self._COMPLETED_SET,
+                self._FAILED_SET,
+            ]
+        elif status == TaskStatus.IN_PROGRESS.value:
+            sets_to_scan = [self._ACTIVE_SET]
+        elif status == TaskStatus.COMPLETED.value:
+            sets_to_scan = [self._COMPLETED_SET]
+        elif status == TaskStatus.FAILED.value:
+            sets_to_scan = [self._FAILED_SET]
+        elif status == TaskStatus.PENDING.value:
+            sets_to_scan = [self._ACTIVE_SET]
+
+        seen_ids: set = set()
+        for set_name in sets_to_scan:
+            task_ids = self._client.smembers(set_name)
+            for tid in task_ids:
+                tid_str = str(tid)
+                if tid_str in seen_ids:
+                    continue
+                seen_ids.add(tid_str)
+                task = self.get_task(tid_str)
+                if task is None:
+                    continue
+                if task_type is not None and task.task_type != task_type:
+                    continue
+                results.append(task)
+
+        results.sort(key=lambda t: t.created_at, reverse=True)
+        return results
+
+    def get_active_count(self) -> int:
+        """Return count of active (pending/in_progress) tasks."""
+        val = self._client.scard(self._ACTIVE_SET)
+        return int(val) if val else 0
+
+    def get_completed_count(self) -> int:
+        """Return count of completed tasks."""
+        val = self._client.scard(self._COMPLETED_SET)
+        return int(val) if val else 0
+
+    def get_failed_count(self) -> int:
+        """Return count of failed tasks."""
+        val = self._client.scard(self._FAILED_SET)
+        return int(val) if val else 0
+
+    # ------------------------------------------------------------------
+    # Legacy compatibility: simulate the old dict-based API
+    # ------------------------------------------------------------------
+
+    def __setitem__(self, task_id: str, data: dict) -> None:
+        """Set a task like a dict: store[task_id] = {...}."""
+        task = TaskInfo.from_dict(data)
+        self._save_task(task)
+        self._client.sadd(self._ACTIVE_SET, task_id)
+
+    def __getitem__(self, task_id: str) -> dict:
+        """Get a task like a dict: store[task_id]."""
+        task = self.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        return task.to_dict()
+
+    def __delitem__(self, task_id: str) -> None:
+        """Delete a task like a dict: del store[task_id]."""
+        self.delete_task(task_id)
+
+    def __contains__(self, task_id: str) -> bool:
+        """Check if a task exists: task_id in store."""
+        return self.get_task(task_id) is not None
+
+    def get_all_statuses(self) -> dict:
+        """Return all tasks as a dict of {task_id: dict} for legacy compatibility."""
+        tasks = self.list_tasks()
+        return {t.task_id: t.to_dict() for t in tasks}
+
+    def _save_task(self, task: TaskInfo) -> None:
+        """Persist a task to Redis."""
+        key = f"{self._TASK_KEY_PREFIX}{task.task_id}"
+        if task.status in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
+            self._client.setex(key, self._COMPLETED_TTL, json.dumps(task.to_dict()))
+        else:
+            self._client.set(key, json.dumps(task.to_dict()))
+
+
+class _ReadOnlyRedis:
+    """Mock Redis client for when Redis is unavailable."""
+
+    def __getattr__(self, name: str):
+        def _noop(*_args, **_kwargs):
+            logger.debug("TaskStore: Redis unavailable, op ignored: %s", name)
+            if name in ("smembers", "keys"):
+                return []
+            if name in ("scard",):
+                return 0
+            return None
+
+        return _noop
+
+    def ping(self) -> bool:
+        return False

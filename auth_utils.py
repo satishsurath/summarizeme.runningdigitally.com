@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from db.models import User
+from services.jwt_auth import JWTAuth
 
 logger = logging.getLogger(__name__)
 
@@ -26,36 +27,58 @@ engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800
 SessionLocal = sessionmaker(bind=engine)
 
 
+def _get_user_email_from_cf_jwt() -> str | None:
+    """Validate a Cloudflare Access JWT and return the email."""
+    token = request.headers.get("Cf-Access-Jwt-Assertion") or request.cookies.get("CF_Authorization")
+    if not token:
+        return None
+
+    try:
+        jwks_client = PyJWKClient(CLOUDFLARE_JWKS_URL)
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=CLOUDFLARE_AUD_TAG,
+            issuer=CLOUDFLARE_ISSUER,
+        )
+        return payload.get("email")
+    except jwt.exceptions.InvalidTokenError as e:
+        logger.warning("Invalid CF Access token: %s", e)
+        return None
+
+
+def _get_user_email_from_jwt_token() -> str | None:
+    """Validate a regular JWT token and return the email."""
+    token = JWTAuth.get_token_from_request()
+    if not token:
+        return None
+
+    payload = JWTAuth.validate_token(token)
+    if payload is None:
+        return None
+
+    return payload.sub
+
+
 def get_user_email_dev_mode():
     """
     Returns a dev-mode email only when DEV_AUTH_ENABLED=true is set.
-    Otherwise attempts Cloudflare Access JWT validation.
+    Otherwise attempts Cloudflare Access JWT validation, then falls back to
+    regular JWT token auth.
     """
     # Dev mode requires explicit opt-in, NOT just FLASK_ENV
     if os.getenv("DEV_AUTH_ENABLED") == "true":
         return "dev@localhost"
 
-    # Production/Cloudflare: Try the simple header first.
-    # cf_email = request.headers.get('Cf-Access-Authenticated-User-Email')
-    # if cf_email:
-    #     return cf_email
+    # Production: Try Cloudflare Access JWT first, then regular JWT
+    email = _get_user_email_from_cf_jwt()
+    if email:
+        return email
 
-    # If you want to do JWT validation:
-    token = request.headers.get("Cf-Access-Jwt-Assertion") or request.cookies.get("CF_Authorization")
-    if not token:
-        return None  # not authenticated
-
-    # Validate the JWT
-    try:
-        jwks_client = PyJWKClient(CLOUDFLARE_JWKS_URL)
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
-        payload = jwt.decode(
-            token, signing_key.key, algorithms=["RS256"], audience=CLOUDFLARE_AUD_TAG, issuer=CLOUDFLARE_ISSUER
-        )
-        return payload.get("email")
-    except jwt.exceptions.InvalidTokenError as e:
-        logger.warning(f"Invalid CF Access token: {e}")
-        return None
+    # Fallback to regular JWT token auth
+    return _get_user_email_from_jwt_token()
 
 
 def get_current_user():
