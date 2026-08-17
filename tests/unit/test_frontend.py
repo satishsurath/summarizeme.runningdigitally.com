@@ -328,7 +328,8 @@ class TestCSSQuality:
         assert not any("@apply" in line for line in css_lines)
 
     def test_icons_have_consistent_sizes(self, icons_css):
-        sizes = re.findall(r"w-(\d+)\s+h-(\d+)", icons_css)
+        # Now uses explicit CSS (width/height) instead of Tailwind @apply
+        sizes = re.findall(r"width:\s*\d+\.?\d*rem;", icons_css)
         assert len(sizes) >= 4
 
 
@@ -438,3 +439,132 @@ class TestNavRedesign:
         """Nav links should use text labels, not inline SVGs."""
         nav_section = layout.split("<!-- Desktop nav links -->")[1].split("<!-- Right side")[0]
         assert "<svg" not in nav_section
+
+
+class TestIconSystem:
+    """Validate the icon system — icons.js, icons.css, macros.html."""
+
+    @pytest.fixture
+    def icons_js(self):
+        return (STATIC_DIR / "js" / "icons.js").read_text()
+
+    @pytest.fixture
+    def icons_css(self):
+        return (STATIC_DIR / "css" / "icons.css").read_text()
+
+    @pytest.fixture
+    def layout(self):
+        return (TEMPLATES_DIR / "layout.html").read_text()
+
+    @pytest.fixture
+    def macros(self):
+        return (TEMPLATES_DIR / "macros.html").read_text()
+
+    def test_icons_js_exists(self):
+        assert (STATIC_DIR / "js" / "icons.js").exists()
+
+    def test_layout_includes_icons_js(self, layout):
+        assert "icons.js" in layout
+
+    def test_icons_js_has_library(self, icons_js):
+        assert "IconLibrary" in icons_js
+
+    def test_icons_js_has_render_method(self, icons_js):
+        assert "render(" in icons_js
+
+    def test_icons_js_has_render_custom(self, icons_js):
+        assert "renderCustom" in icons_js
+
+    def test_icons_js_has_icon_definitions(self, icons_js):
+        for icon in ["bell", "sun", "moon", "menu", "edit", "trash", "refresh", "chat"]:
+            assert f"'{icon}':" in icons_js or f'"{icon}":' in icons_js or f"{icon}:" in icons_js
+
+    def test_icons_js_has_size_definitions(self, icons_js):
+        for size in ["sm", "md", "lg", "xl"]:
+            assert f"'{size}'" in icons_js or f'"{size}"' in icons_js
+
+    def test_icons_js_no_console_log(self, icons_js):
+        assert "console.log" not in icons_js
+
+    def test_icons_js_no_alert(self, icons_js):
+        assert "alert(" not in icons_js
+
+    def test_icons_css_has_size_classes(self, icons_css):
+        for size in [".icon-sm", ".icon-md", ".icon-lg", ".icon-xl"]:
+            assert size in icons_css
+
+    def test_icons_css_no_apply(self, icons_css):
+        """icons.css must use explicit CSS, not @apply (CDN compatibility)."""
+        css_lines = [
+            line
+            for line in icons_css.splitlines()
+            if line.strip() and not line.strip().startswith("/*") and not line.strip().startswith("*")
+        ]
+        assert not any("@apply" in line for line in css_lines)
+
+    def test_icons_css_has_dark_mode(self, icons_css):
+        assert ".dark" in icons_css
+
+    def test_macros_import_exists(self, layout):
+        assert "from 'macros.html' import render_icon" in layout
+
+    def test_macros_has_render_icon(self, macros):
+        assert "render_icon" in macros
+
+    def test_macros_has_icon_definitions(self, macros):
+        for icon in ["bell", "sun", "moon", "menu", "edit", "trash"]:
+            assert f"'{icon}'" in macros
+
+    def test_macros_no_inline_svgs_in_nav(self, layout):
+        """Desktop nav should use render_icon macro, not inline SVGs."""
+        nav_section = layout.split("<!-- Desktop nav links -->")[1].split("<!-- Right side")[0]
+        assert "<svg" not in nav_section
+
+    def test_layout_no_inline_bell_svg(self, layout):
+        """Bell icon should use macro, not inline SVG."""
+        bell_section = layout.split("notificationBtn")[1].split("notificationBadge")[0]
+        assert "<svg" not in bell_section
+
+    def test_layout_no_inline_menu_svg(self, layout):
+        """Menu icon should use macro, not inline SVG."""
+        menu_section = layout.split("mobile-menu-button")[1].split("mobile-menu")[0]
+        assert "<svg" not in menu_section
+
+    def test_layout_no_inline_sun_moon_svgs(self, layout):
+        """Sun/moon icons should use macro, not inline SVGs."""
+        # Check that the dark-mode-toggle sections use render_icon, not <svg>
+        # Count render_icon calls for sun/moon vs inline SVGs
+        sun_macro_count = layout.count("render_icon('sun'")
+        moon_macro_count = layout.count("render_icon('moon'")
+        assert sun_macro_count >= 2  # desktop + mobile
+        assert moon_macro_count >= 2  # desktop + mobile
+
+    def test_index_js_uses_icon_library(self):
+        index_js = (STATIC_DIR / "js" / "index.js").read_text()
+        assert "IconLibrary" in index_js
+
+    def test_toast_js_uses_icon_library(self):
+        toast_js = (STATIC_DIR / "js" / "toast.js").read_text()
+        assert "IconLibrary" in toast_js
+
+    def test_status_js_uses_icon_library(self):
+        status_js = (STATIC_DIR / "js" / "status.js").read_text()
+        assert "IconLibrary" in status_js
+
+    def test_layout_no_inline_icons_in_header(self, layout):
+        """Header section should not have inline SVGs (except YouTube sprite)."""
+        header = layout.split("</header>")[0]
+        # Count SVGs - should only be the YouTube sprite at the bottom
+        svg_count = header.count("<svg")
+        assert svg_count == 0, f"Expected 0 inline SVGs in header, found {svg_count}"
+
+    def test_icons_css_no_important(self, icons_css):
+        assert "!important" not in icons_css
+
+    def test_icons_css_no_apply_in_body(self, icons_css):
+        css_lines = [
+            line
+            for line in icons_css.splitlines()
+            if line.strip() and not line.strip().startswith("/*") and not line.strip().startswith("*")
+        ]
+        assert not any("@apply" in line for line in css_lines)
