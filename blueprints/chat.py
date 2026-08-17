@@ -264,7 +264,13 @@ def api_chat_channel_stream(channel_name):
     """SSE streaming endpoint for chat-channel queries."""
 
     def generate():
+        import sys
+
         from summarizer_v2 import vllm_generate_stream
+
+        # Immediate SSE acknowledgment so the browser doesn't hang
+        yield 'event: loading\ndata: {"status":"processing"}\n\n'
+        sys.stdout.flush()
 
         data = request.json or {}
         user_query = data.get("query", "").strip()
@@ -336,6 +342,7 @@ def api_chat_channel_stream(channel_name):
                     if delta:
                         full_answer += delta
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
+                        sys.stdout.flush()
 
                 answer_html = md_safe(full_answer)
                 if unique_videos:
@@ -356,7 +363,15 @@ def api_chat_channel_stream(channel_name):
         finally:
             session.close()
 
-    return Response(stream_with_context(generate()), content_type="text/event-stream")
+    return Response(
+        stream_with_context(generate()),
+        content_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @chat_bp.route("/api/chat-video/<video_id>/stream", methods=["POST"])
@@ -364,7 +379,13 @@ def api_chat_video_stream(video_id):
     """SSE streaming endpoint for chat-video queries."""
 
     def generate():
+        import sys
+
         from summarizer_v2 import vllm_generate_stream
+
+        # Immediate SSE acknowledgment so the browser doesn't hang
+        yield 'event: loading\ndata: {"status":"processing"}\n\n'
+        sys.stdout.flush()
 
         data = request.json or {}
         user_query = data.get("query", "")
@@ -421,6 +442,7 @@ def api_chat_video_stream(video_id):
                     if delta:
                         full_answer += delta
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
+                        sys.stdout.flush()
 
                 answer_html = md_safe(full_answer)
                 yield f"data: {json.dumps({'answer': answer_html, 'done': True})}\n\n"
@@ -430,4 +452,12 @@ def api_chat_video_stream(video_id):
         finally:
             session.close()
 
-    return Response(stream_with_context(generate()), content_type="text/event-stream")
+    return Response(
+        stream_with_context(generate()),
+        content_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

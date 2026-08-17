@@ -60,10 +60,12 @@ services:
       target: builder
       args:
         NEXT_API_URL: http://localhost:5001
+        NEXT_PUBLIC_FLASK_URL: http://localhost:5001
     ports:
       - "3000:3000"
     environment:
       NEXT_API_URL: http://app:5000
+      NEXT_PUBLIC_FLASK_URL: http://localhost:5001
     depends_on:
       - app
     volumes:
