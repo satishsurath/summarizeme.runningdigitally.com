@@ -277,7 +277,7 @@ def api_chat_channel(channel_name):
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
         raw_sql = chat_channel_sql_templates[selected_view] % {"view": selected_view}
-        emb_literal = "ARRAY[" + ",".join(str(x) for x in user_query_emb) + "]::vector"
+        emb_literal = "ARRAY[" + ",".join(str(float(x)) for x in user_query_emb) + "]::vector"
         raw_sql = raw_sql.replace(":q_emb", emb_literal)
         chunk_rows = session.execute(text(raw_sql), {"chan": channel_name}).fetchall()
 
@@ -369,7 +369,7 @@ def api_chat_video(video_id):
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
-        emb_literal = "ARRAY[" + ",".join(str(x) for x in user_query_emb) + "]::vector"
+        emb_literal = "ARRAY[" + ",".join(str(float(x)) for x in user_query_emb) + "]::vector"
         raw_sql = chat_video_sql_templates[selected_table] % {"view": selected_table}
         raw_sql = raw_sql.replace(":q_emb", emb_literal)
         chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()

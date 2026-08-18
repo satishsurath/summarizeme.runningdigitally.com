@@ -198,9 +198,13 @@ def process_column(
 
         for row_id, content in rows_to_process:
             if not content or not content.strip():
+                failed_row_ids.add(str(row_id))
                 continue
 
             chunks = split_into_chunks(content, chunk_size, overlap)
+            if not chunks:
+                failed_row_ids.add(str(row_id))
+                continue
 
             # Format template based on table
             if "videos" in table_name:

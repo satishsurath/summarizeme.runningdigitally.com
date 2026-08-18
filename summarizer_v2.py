@@ -130,27 +130,27 @@ def vllm_generate_chunk(model_name, prompt, client=None, system_prompt=None):
 
     llm_url = VLLM_GEN_URL
 
-    if not _HAS_OPENAI:
-        shared_logger.error("openai SDK not installed")
-        return ""
-
     messages_list = []
     if system_prompt:
         messages_list.append({"role": "system", "content": system_prompt})
     messages_list.append({"role": "user", "content": prompt})
 
-    base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
-    try:
-        chat_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
-        response = chat_client.chat.completions.create(
-            model=model_name,
-            messages=messages_list,
-            max_tokens=4096,
-        )
-        msg = response.choices[0].message if response.choices else None
-        data = msg.content if msg and msg.content else (getattr(msg, "reasoning", None) or "")
-    except Exception as e:
-        shared_logger.warning("OpenAI SDK generation failed (%s: %s); falling back to httpx", type(e).__name__, e)
+    data = None
+    if _HAS_OPENAI:
+        base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
+        try:
+            chat_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
+            response = chat_client.chat.completions.create(
+                model=model_name,
+                messages=messages_list,
+                max_tokens=4096,
+            )
+            msg = response.choices[0].message if response.choices else None
+            data = msg.content if msg and msg.content else (getattr(msg, "reasoning", None) or "")
+        except Exception as e:
+            shared_logger.warning("OpenAI SDK generation failed (%s: %s); falling back to httpx", type(e).__name__, e)
+
+    if data is None:
         try:
             resp = httpx.post(
                 f"{llm_url}/v1/chat/completions",
@@ -196,42 +196,38 @@ def vllm_generate_stream(model_name: str, prompt: str, system_prompt: str | None
 
     llm_url = VLLM_GEN_URL
 
-    if not _HAS_OPENAI:
-        shared_logger.error("openai SDK not installed")
-        yield "", True
-        return
-
     messages_list = []
     if system_prompt:
         messages_list.append({"role": "system", "content": system_prompt})
     messages_list.append({"role": "user", "content": prompt})
 
-    base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
     yielded_any = False
-    try:
-        chat_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
-        stream = chat_client.chat.completions.create(
-            model=model_name,
-            messages=messages_list,
-            max_tokens=4096,
-            stream=True,
-        )
-        for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            delta_content = (delta.content if delta and delta.content else "") or (
-                getattr(delta, "reasoning", None) or "" if delta else ""
+    if _HAS_OPENAI:
+        base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
+        try:
+            chat_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
+            stream = chat_client.chat.completions.create(
+                model=model_name,
+                messages=messages_list,
+                max_tokens=4096,
+                stream=True,
             )
-            if delta_content:
-                yielded_any = True
-                yield delta_content, False
-        yield "", True
-        return
-    except Exception as e:
-        if yielded_any:
-            shared_logger.error("OpenAI stream interrupted mid-generation: %s", e)
+            for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                delta_content = (delta.content if delta and delta.content else "") or (
+                    getattr(delta, "reasoning", None) or "" if delta else ""
+                )
+                if delta_content:
+                    yielded_any = True
+                    yield delta_content, False
             yield "", True
             return
-        shared_logger.warning("OpenAI stream initialization failed (%s); falling back to httpx", e)
+        except Exception as e:
+            if yielded_any:
+                shared_logger.error("OpenAI stream interrupted mid-generation: %s", e)
+                yield "", True
+                return
+            shared_logger.warning("OpenAI stream initialization failed (%s); falling back to httpx", e)
 
     # Fallback to httpx streaming for vLLM compatibility (only if no chunks were emitted)
     try:
@@ -308,19 +304,20 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
         text_input = f"{prefix}{text_input}"
 
     llm_url = VLLM_EMBED_URL
-    if not _HAS_OPENAI:
-        shared_logger.error("openai SDK not installed")
-        return None
-    base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
-    try:
-        embed_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
-        response = embed_client.embeddings.create(
-            model=model_name,
-            input=[text_input],
-        )
-        data = response.data[0].embedding if response and response.data else None
-    except Exception as e:
-        shared_logger.warning("OpenAI embed SDK failed (%s: %s); falling back to httpx", type(e).__name__, e)
+    data = None
+    if _HAS_OPENAI:
+        base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
+        try:
+            embed_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
+            response = embed_client.embeddings.create(
+                model=model_name,
+                input=[text_input],
+            )
+            data = response.data[0].embedding if response and response.data else None
+        except Exception as e:
+            shared_logger.warning("OpenAI embed SDK failed (%s: %s); falling back to httpx", type(e).__name__, e)
+
+    if data is None:
         try:
             resp = httpx.post(
                 f"{llm_url}/v1/embeddings",
