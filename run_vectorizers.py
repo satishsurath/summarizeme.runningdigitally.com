@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 
-def split_into_chunks(text, chunk_size=1000, overlap=200):
-    """Split text into overlapping chunks."""
+def split_into_chunks(text, chunk_size=1500, overlap=300):
+    """Split text into sentence-aware overlapping chunks (~300-500 words / ~1500 chars)."""
     if not text:
         return []
 
@@ -28,31 +28,37 @@ def split_into_chunks(text, chunk_size=1000, overlap=200):
             chunks.append(text[start:])
             break
 
-        # Try to break at a sentence boundary
+        # Try to break at a sentence boundary within the overlap window
         chunk = text[start:end]
-        # Look for a sentence boundary within the last 200 chars
         for pattern in [r"\.\s+", r"\n\s*\n", r"(?<=[.!?])\s"]:
             match = re.search(pattern, chunk[-overlap:])
             if match:
-                end = start + match.start() + overlap
-                actual_end = start + match.end()
-                if actual_end > start + chunk_size // 2:  # Don't make chunks too small
+                actual_end = start + (len(chunk) - overlap) + match.end()
+                if actual_end > start + chunk_size // 2:
                     end = actual_end
                     break
 
         chunks.append(text[start:end].strip())
-        start = end - overlap
+        start = max(start + 1, end - overlap)
 
     return [c for c in chunks if c.strip()]
 
 
-def get_embedding(text, model_name="nemo-nomic-embed-text-v1.5"):
+def get_embedding(text, model_name="nemo-nomic-embed-text-v1.5", is_query=False):
     """Get embedding from vLLM directly using httpx."""
     embed_host = os.getenv("VLLM_EMBED_HOST", "localhost")
     embed_port = os.getenv("VLLM_EMBED_PORT", "8001")
 
     if not embed_host:
         return None
+
+    if (
+        text
+        and isinstance(text, str)
+        and not (text.startswith("search_query: ") or text.startswith("search_document: "))
+    ):
+        prefix = "search_query: " if is_query else "search_document: "
+        text = f"{prefix}{text}"
 
     for attempt in range(3):
         try:
@@ -71,7 +77,7 @@ def get_embedding(text, model_name="nemo-nomic-embed-text-v1.5"):
             else:
                 logger.error("vLLM embed HTTP error: %d %s", resp.status_code, resp.text[:200])
                 return None
-        except (httpx.HTTPError, httpx.Timeout, json.JSONDecodeError, KeyError, IndexError) as e:
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, IndexError) as e:
             if attempt < 2:
                 logger.warning("vLLM embed error (attempt %d/3): %s", attempt + 1, e)
                 import time
