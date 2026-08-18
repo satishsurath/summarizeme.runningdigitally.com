@@ -69,6 +69,12 @@ def separate_thinking_and_answer(text: str) -> tuple[str | None, str]:
         answer = _clean_answer_start(raw_answer)
         return thinking or None, answer
 
+    # Handle unclosed <think> tag cut off by max_tokens
+    if "<think>" in text.lower() and "</think>" not in text.lower():
+        idx = text.lower().find("<think>")
+        thinking = text[idx + 7 :].strip()
+        return thinking or None, ""
+
     # 2. "Here's a thinking process:" or "Thinking Process:" prefix
     prefix_match = re.match(
         r"^\s*(?:Here(?:'|&#39;|\u2019)?s a thinking process:|Thinking Process:|Thought Process:)",
@@ -235,7 +241,7 @@ def api_chat_channel(channel_name):
     data = request.json or {}
     user_query = data.get("query", "").strip()
     data_type = data.get("data_type", "comprehensive_notes")
-    model_name = data.get("model_name", "nemo-qwen3.6-35b-nvfp4")
+    model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
     if not user_query:
         return jsonify({"answer": "No query provided."}), 400
@@ -255,9 +261,9 @@ def api_chat_channel(channel_name):
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
         "transcript": "public.videos_transcript_no_ts_embedding",
     }
-    selected_view = embeddings_view_map.get(data_type, embeddings_view_map["comprehensive_notes"])
+    selected_view = embeddings_view_map.get(data_type)
     if selected_view not in chat_channel_sql_templates:
-        return jsonify({"answer": "Invalid data type."}), 400
+        return jsonify({"answer": f"Invalid data_type: {data_type}"}), 400
 
     session = SessionLocal()
     final_answer = ""
@@ -316,7 +322,8 @@ def api_chat_channel(channel_name):
     if used_videos_html:
         final_answer_html += used_videos_html
     if thinking:
-        final_answer_html = f"<think>{thinking}</think>\n\n{final_answer_html}"
+        safe_thinking = _html_escape(thinking)
+        final_answer_html = f"<think>{safe_thinking}</think>\n\n{final_answer_html}"
 
     return jsonify({"answer": final_answer_html})
 
@@ -330,7 +337,7 @@ def api_chat_video(video_id):
         return jsonify({"answer": "No query provided."}), 400
 
     data_type = data.get("data_type", "comprehensive_notes")
-    model_name = data.get("model_name", "nemo-qwen3.6-35b-nvfp4")
+    model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
     logger.info(
         "Chat-video query for video_id=%s, user_query=%r, data_type=%r, model=%r",
@@ -347,7 +354,9 @@ def api_chat_video(video_id):
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
         "transcript": "public.videos_transcript_no_ts_embedding",
     }
-    selected_table = embeddings_table_map.get(data_type, embeddings_table_map["comprehensive_notes"])
+    selected_table = embeddings_table_map.get(data_type)
+    if selected_table not in chat_video_sql_templates:
+        return jsonify({"answer": f"Invalid data_type: {data_type}"}), 400
 
     session = SessionLocal()
     final_answer = ""
@@ -399,7 +408,8 @@ def api_chat_video(video_id):
     thinking, main_answer = separate_thinking_and_answer(final_answer)
     final_answer_html = md_safe(main_answer)
     if thinking:
-        final_answer_html = f"<think>{thinking}</think>\n\n{final_answer_html}"
+        safe_thinking = _html_escape(thinking)
+        final_answer_html = f"<think>{safe_thinking}</think>\n\n{final_answer_html}"
     return jsonify({"answer": final_answer_html})
 
 
@@ -424,7 +434,7 @@ def api_chat_channel_stream(channel_name):
         data = request.json or {}
         user_query = data.get("query", "").strip()
         data_type = data.get("data_type", "comprehensive_notes")
-        model_name = data.get("model_name", "nemo-qwen3.6-35b-nvfp4")
+        model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
         if not user_query:
             yield 'event: error\ndata: {"error":"No query provided."}\n\n'
@@ -439,7 +449,7 @@ def api_chat_channel_stream(channel_name):
             "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
             "transcript": "public.videos_transcript_no_ts_embedding",
         }
-        selected_view = embeddings_view_map.get(data_type, embeddings_view_map["comprehensive_notes"])
+        selected_view = embeddings_view_map.get(data_type)
         if selected_view not in chat_channel_sql_templates:
             yield 'event: error\ndata: {"error":"Invalid data type."}\n\n'
             return
@@ -494,8 +504,10 @@ def api_chat_channel_stream(channel_name):
                 if unique_videos:
                     answer_html += format_youtube_citations_html(unique_videos)
 
-                final_payload_text = f"<think>{thinking}</think>\n\n{answer_html}" if thinking else answer_html
-                yield f"data: {json.dumps({'answer': final_payload_text, 'done': True})}\n\n"
+                if thinking:
+                    safe_thinking = _html_escape(thinking)
+                    answer_html = f"<think>{safe_thinking}</think>\n\n{answer_html}"
+                yield f"data: {json.dumps({'answer': answer_html, 'done': True})}\n\n"
         except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
             logger.exception("Error during chat-channel stream:")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
@@ -533,7 +545,7 @@ def api_chat_video_stream(video_id):
             return
 
         data_type = data.get("data_type", "comprehensive_notes")
-        model_name = data.get("model_name", "nemo-qwen3.6-35b-nvfp4")
+        model_name = data.get("model_name", "nemo-qwen3.6-35b-a3b-nvfp4")
 
         logger.info("Chat-video stream query for video_id=%s, user_query=%r", video_id, user_query)
 
@@ -544,7 +556,10 @@ def api_chat_video_stream(video_id):
             "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
             "transcript": "public.videos_transcript_no_ts_embedding",
         }
-        selected_table = embeddings_table_map.get(data_type, embeddings_table_map["comprehensive_notes"])
+        selected_table = embeddings_table_map.get(data_type)
+        if selected_table not in chat_video_sql_templates:
+            yield 'event: error\ndata: {"error":"Invalid data type."}\n\n'
+            return
 
         session = SessionLocal()
         try:
@@ -597,8 +612,10 @@ def api_chat_video_stream(video_id):
 
                 thinking, main_answer = separate_thinking_and_answer(full_answer)
                 answer_html = md_safe(main_answer)
-                final_payload_text = f"<think>{thinking}</think>\n\n{answer_html}" if thinking else answer_html
-                yield f"data: {json.dumps({'answer': final_payload_text, 'done': True})}\n\n"
+                if thinking:
+                    safe_thinking = _html_escape(thinking)
+                    answer_html = f"<think>{safe_thinking}</think>\n\n{answer_html}"
+                yield f"data: {json.dumps({'answer': answer_html, 'done': True})}\n\n"
         except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
             logger.exception("Error during chat-video stream:")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"

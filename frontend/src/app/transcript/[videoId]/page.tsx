@@ -191,12 +191,15 @@ export default function TranscriptPage() {
             </span>
             <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
               {searchQuery ? (
-                <span dangerouslySetInnerHTML={{
-                  __html: segment.text.replace(
-                    new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"),
-                    '<mark class="bg-yellow-200 dark:bg-yellow-700 rounded px-0.5">$1</mark>',
-                  ),
-                }} />
+                <span>
+                  {segment.text.split(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")).map((part, i) =>
+                    part.toLowerCase() === searchQuery.toLowerCase() ? (
+                      <mark key={i} className="bg-yellow-200 dark:bg-yellow-700 rounded px-0.5">{part}</mark>
+                    ) : (
+                      part
+                    )
+                  )}
+                </span>
               ) : (
                 segment.text
               )}

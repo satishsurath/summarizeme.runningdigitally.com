@@ -252,12 +252,14 @@ export default function ChatVideoPage() {
                     isStreaming={parsed.isThinkingActive}
                   />
                 )}
-                <div
-                  className="text-sm leading-relaxed whitespace-pre-wrap"
-                  dangerouslySetInnerHTML={{
-                    __html: sanitizeHtml(isAssistant ? parsed?.answer || "" : msg.content),
-                  }}
-                />
+                {isAssistant ? (
+                  <div
+                    className="text-sm leading-relaxed whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(parsed?.answer || "") }}
+                  />
+                ) : (
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                )}
                 <div className="flex items-center justify-between mt-2 pt-1 border-t border-black/5 dark:border-white/5 gap-4">
                   <span
                     className={`text-xs ${

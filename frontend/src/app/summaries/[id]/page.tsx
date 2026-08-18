@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -237,7 +238,7 @@ export default function SummaryPage() {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
         <div className="prose dark:prose-invert max-w-none">
           {activeTabData.content ? (
-            <div dangerouslySetInnerHTML={{ __html: activeTabData.content }} />
+            <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(activeTabData.content) }} />
           ) : (
             <p className="text-gray-500 dark:text-gray-400 italic">No content available.</p>
           )}

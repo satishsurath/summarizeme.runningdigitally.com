@@ -17,9 +17,12 @@ logger = logging.getLogger(__name__)
 
 # DB_URL and SessionLocal are imported from app module to avoid duplication.
 # If this file is used standalone, define them:
+# DB_URL and SessionLocal are imported from app_config to avoid circular imports.
 try:
-    from app import DB_URL, SessionLocal, engine
+    from app_config import SessionLocal, engine
 except ImportError:
+    from sqlalchemy import create_engine
+
     DB_URL = os.environ["DATABASE_URL"]
     engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)
     SessionLocal = sessionmaker(bind=engine)
@@ -48,14 +51,15 @@ def download_channel_transcripts(channel_url, task_store, task_id):
         existing_folder = session.query(VideoFolder).filter_by(original_playlist_id=channel_id).first()
 
         # Determine content type from URL
-        is_video_url = "youtube.com/watch" in channel_url or "youtu.be/" in channel_url
+        url_types = ["youtube.com/watch", "youtu.be/", "youtube.com/shorts/", "youtube.com/live/"]
+        is_video_url = any(k in channel_url for k in url_types)
         content_type = "video" if is_video_url else "playlist"
 
         human_playlist_name = existing_folder.folder_name if existing_folder else channel_id
 
         # Set content_type on existing folder or use default
         if existing_folder:
-            existing_folder.content_type = content_type
+            setattr(existing_folder, "content_type", content_type)  # noqa: B010
             session.commit()
 
         processed_count = 0
@@ -76,6 +80,7 @@ def download_channel_transcripts(channel_url, task_store, task_id):
                 existing_video = session.query(Video).filter_by(video_id=video_id).first()
 
                 if existing_video:
+                    ensure_folder_association(session, video_id, channel_id, human_playlist_name, content_type)
                     processed_count += 1
                     continue
 
@@ -93,6 +98,7 @@ def download_channel_transcripts(channel_url, task_store, task_id):
                 video_obj = Video(
                     video_id=video_id,
                     title=video_title,
+                    upload_date=video.get("upload_date"),
                     transcript_with_ts=None,
                     transcript_no_ts=None,
                 )
@@ -106,8 +112,8 @@ def download_channel_transcripts(channel_url, task_store, task_id):
                     if txt:
                         srt_lines.append(f"[{t['start']:.1f}s] " + txt)
                 srt_text = "\n".join(srt_lines)
-                video_obj.transcript_with_ts = srt_text
-                video_obj.transcript_no_ts = "".join(t.get("text", "") for t in parsed if t.get("text"))
+                setattr(video_obj, "transcript_with_ts", srt_text)  # noqa: B010
+                setattr(video_obj, "transcript_no_ts", " ".join(t.get("text", "") for t in parsed if t.get("text")))  # noqa: B010
 
                 # Ensure folder association
                 ensure_folder_association(session, video_id, channel_id, human_playlist_name, content_type)
@@ -122,15 +128,17 @@ def download_channel_transcripts(channel_url, task_store, task_id):
             except Exception as e:
                 import traceback
 
+                session.rollback()
                 logger.error(f"Error processing video {video_id}: {e} - {traceback.format_exc()}")
                 errors.append(f"{video_id}: {e}")
                 processed_count += 1
 
         session.commit()
+        task_store.update_task(task_id, processed=processed_count, errors=errors)
 
         # Update folder last_modified
         if existing_folder:
-            existing_folder.last_modified = datetime.now(UTC)
+            setattr(existing_folder, "last_modified", datetime.now(UTC))  # noqa: B010
             session.commit()
 
     except Exception as e:
@@ -195,7 +203,14 @@ def get_channel_and_videos(channel_url):
     entries = data.get("entries", [])
 
     # Handle single video URL (no entries array, metadata at top level)
-    if not entries and data.get("id") and ("youtube.com/watch" in channel_url or "youtu.be/" in channel_url):
+    is_single_video = (
+        not entries
+        and data.get("id")
+        and any(
+            k in channel_url for k in ["youtube.com/watch", "youtu.be/", "youtube.com/shorts/", "youtube.com/live/"]
+        )
+    )
+    if is_single_video:
         vid_id = data.get("video_id") or data.get("id")
         vid_title = data.get("title", "Untitled")
         upload_date = data.get("upload_date", "UnknownDate")
@@ -268,23 +283,30 @@ def get_transcript_for_video(video_id):
 
 def parse_srt(srt_text):
     """
-    Parse an SRT transcript into a list of {start, duration, text} dicts.
+    Parse an SRT/VTT transcript into a list of {start, duration, text} dicts.
     """
+    if not srt_text:
+        return []
     entries = []
+    import re
+
+    srt_text = re.sub(r"\r\n", "\n", srt_text)
     blocks = srt_text.strip().split("\n\n")
     for block in blocks:
-        lines = block.strip().split("\n")
-        if len(lines) < 3:
+        lines = [line.strip() for line in block.strip().split("\n") if line.strip()]
+        if not lines:
             continue
-        # Time line
-        time_line = lines[1]
+        time_idx = next((i for i, line_str in enumerate(lines) if "-->" in line_str), None)
+        if time_idx is None:
+            continue
         try:
-            start_str, end_str = time_line.split(" --> ")
-            start = srt_time_to_seconds(start_str.strip())
-            duration = srt_time_to_seconds(end_str.strip()) - start
-            text = " ".join(lines[2:]).strip()
-            if text:
-                entries.append({"start": start, "duration": duration, "text": text})
+            start_str, end_str = lines[time_idx].split("-->")
+            start = srt_time_to_seconds(start_str)
+            duration = srt_time_to_seconds(end_str) - start
+            raw_text = " ".join(lines[time_idx + 1 :]).strip()
+            clean_text = re.sub(r"<[^>]+>", "", raw_text).strip()
+            if clean_text:
+                entries.append({"start": start, "duration": max(0.0, duration), "text": clean_text})
         except Exception:
             continue
     return entries
@@ -292,21 +314,16 @@ def parse_srt(srt_text):
 
 def srt_time_to_seconds(t_str):
     """
-    Convert 'HH:MM:SS,mmm' or 'HH:MM:SS' to seconds (float).
+    Convert 'HH:MM:SS,mmm', 'MM:SS.mmm', or 'HH:MM:SS' to seconds (float).
     """
-    t_str = t_str.strip()
-    # Handle both comma and dot as decimal separator
+    t_str = t_str.strip().split()[0]
     t_str = t_str.replace(",", ".")
-    if "." in t_str:
-        time_part, ms_part = t_str.rsplit(".", 1)
-        ms = int(ms_part) if ms_part else 0
-    else:
-        time_part = t_str
-        ms = 0
-
-    parts = time_part.split(":")
-    h, m, s = int(parts[0]), int(parts[1]), float(parts[2])
-    return h * 3600 + m * 60 + s + ms / 1000.0
+    parts = t_str.split(":")
+    if len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    elif len(parts) == 2:
+        return int(parts[0]) * 60 + float(parts[1])
+    return float(parts[0])
 
 
 def build_transcript_variants(transcript_entries):
@@ -344,7 +361,7 @@ def list_downloaded_videos(channel_id):
             {
                 "video_id": v.video_id,
                 "title": v.title,
-                "duration_seconds": v.duration_seconds or 0,
+                "duration_seconds": getattr(v, "duration_seconds", 0) or 0,
                 "has_transcript": bool(v.transcript_no_ts),
             }
             for v in videos
