@@ -31,19 +31,18 @@ from summarizer_v2 import (  # noqa: F401  # re-exported for blueprints
 )
 from youtube_utils import download_channel_transcripts  # noqa: F401  # re-exported for blueprints
 
+DEFAULT_GEN_MODEL = os.getenv("VLLM_GEN_MODEL", "nemo-qwen3.6-35b-a3b-nvfp4")
+
 
 def md_safe(s):
     """Render markdown to HTML, escaping raw HTML first to prevent XSS.
 
     markupsafe.escape converts <, >, &, ", ' to entities before markdown
     processes the string, so injected script/HTML tags are neutralised.
-    Note: Markdown 3.x dropped safe_mode; pre-escaping the input is the
-    correct replacement.
     """
     if not s:
         return ""
-    rendered = markdown.markdown(str(_html_escape(s)))
-    return rendered.replace("&#39;", "'").replace("&#34;", '"').replace("&quot;", '"').replace("&apos;", "'")
+    return markdown.markdown(str(_html_escape(s)))
 
 
 load_dotenv()
@@ -137,7 +136,7 @@ _CHAT_CHANNEL_SQL_TEMPLATE = """
     SELECT ev.content, s.video_id, v.title AS video_title,
            1 - (ev.embedding <=> :q_emb) AS similarity
     FROM %(view)s ev
-    JOIN summaries_v2 s ON ev.source_id = s.id::VARCHAR
+    JOIN summaries_v2 s ON ev.source_id = CAST(s.id AS VARCHAR)
     JOIN video_folders vf ON s.video_id = vf.video_id
     JOIN videos v        ON s.video_id = v.video_id
     WHERE vf.folder_name = :chan
@@ -165,7 +164,7 @@ CHAT_CHANNEL_SQL_TEMPLATES = {
 _CHAT_VIDEO_SUMMARY_SQL_TEMPLATE = """
     SELECT ev.content, 1 - (ev.embedding <=> :q_emb) AS similarity
     FROM %(view)s ev
-    JOIN summaries_v2 s ON ev.source_id = s.id::VARCHAR
+    JOIN summaries_v2 s ON ev.source_id = CAST(s.id AS VARCHAR)
     WHERE s.video_id = :vid
     ORDER BY similarity DESC LIMIT 15
 """

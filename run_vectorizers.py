@@ -89,10 +89,14 @@ def get_embedding(text, model_name="nemo-nomic-embed-text-v1.5", is_query=False)
 def ensure_pgvector(cur, conn):
     """Ensure pgvector extension is installed."""
     logger.info("Ensuring pgvector extension is installed...")
-    conn.autocommit = True
-    cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-    conn.autocommit = False
-    conn.commit()
+    original_autocommit = conn.autocommit
+    try:
+        conn.autocommit = True
+        cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    finally:
+        conn.autocommit = original_autocommit
+        if not conn.autocommit:
+            conn.commit()
 
 
 def ensure_destination_table(cur, conn, table_name):
@@ -173,23 +177,26 @@ def process_column(
     col_ref = sql.Identifier(column_name)
     dest_table_ref = sql.Identifier(dest_table.split(".")[-1] if "." in dest_table else dest_table)
 
+    failed_row_ids: set[str] = set()
+
     while True:
         cur.execute(
             sql.SQL(
                 "SELECT src.{}, src.{} FROM {} src "
                 "WHERE NOT EXISTS ("
-                "    SELECT 1 FROM {} dst WHERE dst.source_id = src.{}::VARCHAR"
+                "    SELECT 1 FROM {} dst WHERE dst.source_id = CAST(src.{} AS VARCHAR)"
                 ") LIMIT 100;"
             ).format(id_col_ref, col_ref, table_ref, dest_table_ref, id_col_ref)
         )
 
         rows = cur.fetchall()
-        if not rows:
+        rows_to_process = [r for r in rows if str(r[0]) not in failed_row_ids]
+        if not rows_to_process:
             break
 
-        logger.info("Processing batch of %d rows for %s.%s...", len(rows), table_name, column_name)
+        logger.info("Processing batch of %d rows for %s.%s...", len(rows_to_process), table_name, column_name)
 
-        for row_id, content in rows:
+        for row_id, content in rows_to_process:
             if not content or not content.strip():
                 continue
 
@@ -230,8 +237,11 @@ def process_column(
                     )
                 conn.commit()
             else:
-                logger.warning("Skipping commit for row %s due to embedding failure in one or more chunks", row_id)
+                logger.warning(
+                    "Skipping commit for row %s due to embedding failure; marking row as failed for this run.", row_id
+                )
                 conn.rollback()
+                failed_row_ids.add(str(row_id))
 
     logger.info("Done with %s.%s", table_name, column_name)
 

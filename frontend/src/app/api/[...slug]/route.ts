@@ -7,10 +7,12 @@ const BACKEND_URL = process.env.NEXT_API_URL || "http://app:5000";
 async function forwardRequest(request: NextRequest, method: string) {
   try {
     const url = new URL(request.url);
-    const backendPath = `${BACKEND_URL}${url.pathname}${url.search}`;
+    const baseUrl = BACKEND_URL.replace(/\/+$/, "");
+    const backendPath = `${baseUrl}${url.pathname}${url.search}`;
 
     const headers = new Headers(request.headers);
     headers.delete("host");
+    headers.delete("content-length");
 
     const fetchInit: RequestInit = {
       method,
@@ -37,31 +39,22 @@ async function forwardRequest(request: NextRequest, method: string) {
 
     const resp = await fetch(backendPath, fetchInit);
 
+    const responseHeaders = new Headers(resp.headers);
+    responseHeaders.delete("content-encoding");
+
     // Check if the backend is streaming
     const responseContentType = resp.headers.get("content-type") || "";
     if (responseContentType.includes("text/event-stream")) {
-      return new Response(resp.body, {
-        status: resp.status,
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache, no-transform",
-          Connection: "keep-alive",
-          "X-Accel-Buffering": "no",
-        },
-      });
+      responseHeaders.set("Content-Type", "text/event-stream");
+      responseHeaders.set("Cache-Control", "no-cache, no-transform");
+      responseHeaders.set("Connection", "keep-alive");
+      responseHeaders.set("X-Accel-Buffering", "no");
     }
 
-    // Non-streaming: parse and forward JSON or text
-    const text = await resp.text();
-    try {
-      const data = JSON.parse(text);
-      return Response.json(data, { status: resp.status });
-    } catch {
-      return new Response(text, {
-        status: resp.status,
-        headers: { "Content-Type": responseContentType || "text/plain" },
-      });
-    }
+    return new Response(resp.body, {
+      status: resp.status,
+      headers: responseHeaders,
+    });
   } catch (err) {
     return Response.json({ error: "Backend unavailable", details: String(err) }, { status: 502 });
   }

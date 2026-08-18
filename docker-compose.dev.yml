@@ -43,7 +43,6 @@ services:
       REDIS_URL: redis://redis:6379/0
       FLASK_ENV: development
       DEV_AUTH_ENABLED: "true"
-      NEXT_API_URL: http://localhost:5001
     depends_on:
       db:
         condition: service_healthy
@@ -59,7 +58,7 @@ services:
       dockerfile: Dockerfile.frontend
       target: builder
       args:
-        NEXT_API_URL: http://localhost:5001
+        NEXT_API_URL: http://app:5000
         NEXT_PUBLIC_FLASK_URL: http://localhost:5001
     ports:
       - "3000:3000"

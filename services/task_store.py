@@ -160,6 +160,8 @@ class TaskStore:
         if status is not None:
             task.status = status
             self._client.srem(self._ACTIVE_SET, task_id)
+            self._client.srem(self._COMPLETED_SET, task_id)
+            self._client.srem(self._FAILED_SET, task_id)
             if status in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
                 target_set = self._COMPLETED_SET if status == TaskStatus.COMPLETED.value else self._FAILED_SET
                 self._client.sadd(target_set, task_id)
@@ -226,6 +228,7 @@ class TaskStore:
                 seen_ids.add(tid_str)
                 task = self.get_task(tid_str)
                 if task is None:
+                    self._client.srem(set_name, tid_str)
                     continue
                 if status is not None and task.status != status:
                     continue
@@ -297,26 +300,43 @@ class _InMemoryTaskStore:
         import threading
 
         self._kv: dict[str, str] = {}
+        self._ttl: dict[str, float] = {}
         self._sets: dict[str, set[str]] = {}
         self._lock = threading.Lock()
 
+    def _purge_expired(self):
+        now = time.time()
+        expired = [k for k, exp in self._ttl.items() if exp <= now]
+        for k in expired:
+            self._kv.pop(k, None)
+            self._ttl.pop(k, None)
+            tid = k.removeprefix("task:")
+            for s in self._sets.values():
+                s.discard(tid)
+
     def get(self, key: str) -> str | None:
         with self._lock:
+            self._purge_expired()
             return self._kv.get(key)
 
     def set(self, key: str, value: str) -> bool:
         with self._lock:
+            self._purge_expired()
             self._kv[key] = value
+            self._ttl.pop(key, None)
             return True
 
-    def setex(self, key: str, _time: int, value: str) -> bool:
+    def setex(self, key: str, ttl: int, value: str) -> bool:
         with self._lock:
+            self._purge_expired()
             self._kv[key] = value
+            self._ttl[key] = time.time() + ttl
             return True
 
     def delete(self, key: str) -> bool:
         with self._lock:
             self._kv.pop(key, None)
+            self._ttl.pop(key, None)
             return True
 
     def sadd(self, name: str, value: str) -> int:
@@ -337,17 +357,24 @@ class _InMemoryTaskStore:
 
     def smembers(self, name: str) -> set[str]:
         with self._lock:
+            self._purge_expired()
             return set(self._sets.get(name, set()))
 
     def scard(self, name: str) -> int:
         with self._lock:
+            self._purge_expired()
             return len(self._sets.get(name, set()))
 
-    def expire(self, _key: str, _ttl: int) -> bool:
-        return True
+    def expire(self, key: str, ttl: int) -> bool:
+        with self._lock:
+            if key in self._kv:
+                self._ttl[key] = time.time() + ttl
+            return True
 
-    def persist(self, _key: str) -> bool:
-        return True
+    def persist(self, key: str) -> bool:
+        with self._lock:
+            self._ttl.pop(key, None)
+            return True
 
     def ping(self) -> bool:
         return True

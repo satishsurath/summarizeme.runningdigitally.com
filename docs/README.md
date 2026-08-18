@@ -11,7 +11,7 @@
 
 ## Architecture Decision Records (ADRs)
 
-Architecture Decision Records are stored in the [adr/](adr/) directory.
+Architecture Decision Records are stored in the [ADR Index](adr/README.md).
 
 ## Maturity Assessments
 

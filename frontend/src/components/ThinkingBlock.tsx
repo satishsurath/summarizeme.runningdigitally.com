@@ -9,15 +9,15 @@ interface ThinkingBlockProps {
 }
 
 export function ThinkingBlock({ thinking, isStreaming = false }: ThinkingBlockProps) {
-  // Open by default while streaming, closed when finished
+  // Open by default while streaming
   const [isExpanded, setIsExpanded] = useState<boolean>(isStreaming);
   const [userToggled, setUserToggled] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<"formatted" | "raw">("formatted");
 
-  // Auto-collapse when streaming completes unless user manually toggled
+  // Keep expanded while streaming unless user explicitly toggled it
   useEffect(() => {
-    if (!userToggled) {
-      setIsExpanded(isStreaming);
+    if (isStreaming && !userToggled) {
+      setIsExpanded(true);
     }
   }, [isStreaming, userToggled]);
 
@@ -35,20 +35,14 @@ export function ThinkingBlock({ thinking, isStreaming = false }: ThinkingBlockPr
   return (
     <div className="mb-3 rounded-lg border border-purple-200/80 dark:border-purple-900/40 bg-purple-50/40 dark:bg-purple-950/20 overflow-hidden text-xs transition-all">
       {/* Header / Toggle bar */}
-      <div
-        onClick={toggleExpand}
-        className="flex items-center justify-between w-full px-3 py-2 bg-purple-100/60 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors select-none text-left cursor-pointer"
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            toggleExpand();
-          }
-        }}
-        aria-expanded={isExpanded}
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between w-full px-3 py-2 bg-purple-100/60 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors select-none text-left">
+        <button
+          type="button"
+          onClick={toggleExpand}
+          className="flex items-center gap-2 flex-1 text-left cursor-pointer focus:outline-none focus:ring-1 focus:ring-purple-400 rounded"
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? "Collapse thought process" : "Expand thought process"}
+        >
           {/* Brain / Sparkles Icon */}
           <svg
             className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0"
@@ -74,7 +68,7 @@ export function ThinkingBlock({ thinking, isStreaming = false }: ThinkingBlockPr
               <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
             </span>
           )}
-        </div>
+        </button>
 
         <div className="flex items-center gap-2">
           {/* Formatted vs Raw View Mode Pills */}
@@ -82,6 +76,7 @@ export function ThinkingBlock({ thinking, isStreaming = false }: ThinkingBlockPr
             <div
               className="flex items-center gap-0.5 bg-purple-200/60 dark:bg-purple-900/50 p-0.5 rounded-md border border-purple-300/50 dark:border-purple-800/50"
               onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
             >
               <button
                 type="button"
@@ -110,7 +105,11 @@ export function ThinkingBlock({ thinking, isStreaming = false }: ThinkingBlockPr
             </div>
           )}
 
-          <div className="flex items-center gap-1 text-purple-700 dark:text-purple-300 text-[11px]">
+          <button
+            type="button"
+            onClick={toggleExpand}
+            className="flex items-center gap-1 text-purple-700 dark:text-purple-300 text-[11px] cursor-pointer"
+          >
             <span>{isExpanded ? "Hide" : "Show"}</span>
             <svg
               className={`w-3.5 h-3.5 transition-transform duration-200 ${
@@ -123,7 +122,7 @@ export function ThinkingBlock({ thinking, isStreaming = false }: ThinkingBlockPr
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
-          </div>
+          </button>
         </div>
       </div>
 

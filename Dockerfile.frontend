@@ -12,7 +12,7 @@ COPY frontend/ ./
 
 # Build
 ARG NEXT_API_URL=http://localhost:8000
-ARG NEXT_PUBLIC_FLASK_URL=
+ARG NEXT_PUBLIC_FLASK_URL=http://localhost:5001
 ENV NEXT_API_URL=${NEXT_API_URL}
 ENV NEXT_PUBLIC_FLASK_URL=${NEXT_PUBLIC_FLASK_URL}
 RUN npm run build
@@ -30,7 +30,7 @@ RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
 # Copy built app
-COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 

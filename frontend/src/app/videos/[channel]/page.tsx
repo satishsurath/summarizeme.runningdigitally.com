@@ -232,13 +232,11 @@ export default function VideosPage() {
 
   // Poll task status if summarizing
   useEffect(() => {
-    if (!summarizing || !taskStatus) return;
+    if (!summarizing) return;
     const interval = setInterval(async () => {
       try {
-        // In a real app, we'd track the task_id and poll it
-        // For now, just check if any active tasks exist
         const tasks = await listActiveTasks();
-        const active = tasks.filter((t) => t.status === "in_progress");
+        const active = tasks.filter((t) => t.status === "in_progress" || t.status === "pending");
         if (active.length === 0) {
           setSummarizing(false);
           setTaskStatus(null);
@@ -249,7 +247,7 @@ export default function VideosPage() {
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [summarizing, taskStatus, loadVideos]);
+  }, [summarizing, loadVideos]);
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -280,6 +278,7 @@ export default function VideosPage() {
       if (res.task_id) {
         showToast(`Summarization started. Task: ${res.task_id}`, "success");
         setSelected(new Set());
+        setTaskStatus({ status: "in_progress", processed: 0, total: ids.length });
       } else {
         showToast(res.message || "Summarization failed", "error");
         setSummarizing(false);
