@@ -118,7 +118,9 @@ class TaskStore:
         """Create a new task and return its ID."""
         import uuid
 
-        task_id = f"{task_type[:2]}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+        prefix_map = {"download": "dl", "summarize": "su"}
+        prefix = prefix_map.get(task_type, task_type[:2])
+        task_id = f"{prefix}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
         now = time.time()
         task = TaskInfo(
             task_id=task_id,
@@ -128,12 +130,10 @@ class TaskStore:
             updated_at=now,
             total=total,
             processed=0,
-            errors=[],
             metadata=metadata or {},
         )
         self._save_task(task)
         self._client.sadd(self._ACTIVE_SET, task_id)
-        logger.info("Created task %s (type=%s, total=%d)", task_id, task_type, total)
         return task_id
 
     def get_task(self, task_id: str) -> TaskInfo | None:
@@ -288,7 +288,7 @@ class TaskStore:
         """Persist a task to Redis."""
         key = f"{self._TASK_KEY_PREFIX}{task.task_id}"
         if task.status in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
-            self._client.setex(key, self._COMPLETED_TTL, json.dumps(task.to_dict()))
+            self._client.set(key, json.dumps(task.to_dict()), ex=self._COMPLETED_TTL)
         else:
             self._client.set(key, json.dumps(task.to_dict()))
 
@@ -319,11 +319,14 @@ class _InMemoryTaskStore:
             self._purge_expired()
             return self._kv.get(key)
 
-    def set(self, key: str, value: str) -> bool:
+    def set(self, key: str, value: str, ex: int | None = None) -> bool:
         with self._lock:
             self._purge_expired()
             self._kv[key] = value
-            self._ttl.pop(key, None)
+            if ex is not None:
+                self._ttl[key] = time.time() + ex
+            else:
+                self._ttl.pop(key, None)
             return True
 
     def setex(self, key: str, ttl: int, value: str) -> bool:

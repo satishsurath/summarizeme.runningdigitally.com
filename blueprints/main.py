@@ -101,6 +101,7 @@ def api_get_summary(summary_id):
                 "model_name": summary_obj.model_name,
                 "date_generated": summary_obj.date_generated.isoformat() if summary_obj.date_generated else None,
                 "concise_summary": summary_obj.concise_summary or "",
+                "key_topics": summary_obj.key_topics or "",
                 "important_takeaways": summary_obj.important_takeaways or "",
                 "comprehensive_notes": summary_obj.comprehensive_notes or "",
             }
