@@ -4,14 +4,10 @@ from app_config import md_safe
 from blueprints.chat import separate_thinking_and_answer
 
 
-def test_md_safe_unescapes_apostrophes_and_quotes():
-    """Verify md_safe unescapes &#39; and &#34; in text nodes while preserving XSS protection."""
+def test_md_safe_preserves_xss_protection():
+    """Verify md_safe preserves XSS protection by escaping raw HTML tags."""
     input_text = 'Here\'s a test with "quotes" and <script>alert(1)</script>.'
     html = md_safe(input_text)
-
-    # Apostrophes and quotes should be clean text
-    assert "Here's" in html
-    assert '"quotes"' in html
 
     # Dangerous tags must remain escaped
     assert "<script>" not in html

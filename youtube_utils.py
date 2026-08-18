@@ -50,17 +50,16 @@ def download_channel_transcripts(channel_url, task_store, task_id):
         # Use existing folder name if exists, else use channel_id
         existing_folder = session.query(VideoFolder).filter_by(original_playlist_id=channel_id).first()
 
-        # Determine content type from URL
+        # Determine content type based on URL and resolved entries count
         url_types = ["youtube.com/watch", "youtu.be/", "youtube.com/shorts/", "youtube.com/live/"]
         is_video_url = any(k in channel_url for k in url_types)
-        content_type = "video" if is_video_url else "playlist"
+        content_type = "video" if (is_video_url and len(videos) == 1) else "playlist"
 
         human_playlist_name = existing_folder.folder_name if existing_folder else channel_id
 
         # Set content_type on existing folder or use default
         if existing_folder:
-            setattr(existing_folder, "content_type", content_type)  # noqa: B010
-            session.commit()
+            existing_folder.content_type = content_type
 
         processed_count = 0
         new_count = 0
@@ -112,8 +111,8 @@ def download_channel_transcripts(channel_url, task_store, task_id):
                     if txt:
                         srt_lines.append(f"[{t['start']:.1f}s] " + txt)
                 srt_text = "\n".join(srt_lines)
-                setattr(video_obj, "transcript_with_ts", srt_text)  # noqa: B010
-                setattr(video_obj, "transcript_no_ts", " ".join(t.get("text", "") for t in parsed if t.get("text")))  # noqa: B010
+                video_obj.transcript_with_ts = srt_text
+                video_obj.transcript_no_ts = " ".join(t.get("text", "") for t in parsed if t.get("text"))
 
                 # Ensure folder association
                 ensure_folder_association(session, video_id, channel_id, human_playlist_name, content_type)
@@ -137,8 +136,9 @@ def download_channel_transcripts(channel_url, task_store, task_id):
         task_store.update_task(task_id, processed=processed_count, errors=errors)
 
         # Update folder last_modified
+        existing_folder = session.query(VideoFolder).filter_by(original_playlist_id=channel_id).first()
         if existing_folder:
-            setattr(existing_folder, "last_modified", datetime.now(UTC))  # noqa: B010
+            existing_folder.last_modified = datetime.now(UTC)
             session.commit()
 
     except Exception as e:
@@ -168,7 +168,6 @@ def ensure_folder_association(session, video_id, channel_id, folder_name, conten
             last_modified=datetime.now(UTC),
         )
         session.add(folder_assoc)
-        session.commit()
 
 
 def get_channel_and_videos(channel_url):

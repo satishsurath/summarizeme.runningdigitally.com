@@ -23,9 +23,14 @@
   max-width: 65ch;
 }
 
-/* Smooth transitions */
-* {
-  transition-property: background-color, border-color, color;
+/* Smooth transitions for interactive elements */
+button,
+a,
+input,
+select,
+textarea,
+.transition-colors {
+  transition-property: background-color, border-color, color, fill, stroke;
   transition-duration: 150ms;
   transition-timing-function: ease;
 }

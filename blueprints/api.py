@@ -123,12 +123,13 @@ def api_get_videos(channel_name):
 
 
 @api_bp.route("/summarize_v2", methods=["POST"])
+@require_role(["admin", "member"])
 def api_summarize_v2():
     """Generate a v2 summary for multiple videos."""
     data = request.get_json() or {}
     channel_name = data.get("channel_name", "").strip()
     video_ids = data.get("video_ids", [])
-    model_name = data.get("model", "nemo-qwen3.6-35b-a3b-nvfp4")
+    model_name = data.get("model_name") or data.get("model") or "nemo-qwen3.6-35b-a3b-nvfp4"
 
     if not channel_name or not video_ids:
         return jsonify({"status": "error", "message": "channel_id or video_ids missing"}), 400

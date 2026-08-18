@@ -36,16 +36,24 @@ def _get_user_email_from_cf_jwt() -> str | None:
     if not token:
         return None
 
+    jwks_client = _get_jwks_client()
+    if not jwks_client:
+        return None
+
+    aud = os.getenv("CLOUDFLARE_AUD_TAG") or CLOUDFLARE_AUD_TAG
+    iss = os.getenv("CLOUDFLARE_ISSUER") or CLOUDFLARE_ISSUER
+    if not aud or not iss:
+        logger.warning("Cloudflare AUD_TAG or ISSUER missing in config.")
+        return None
+
     try:
-        jwks_url = os.getenv("CLOUDFLARE_JWKS_URL", CLOUDFLARE_JWKS_URL)
-        jwks_client = PyJWKClient(jwks_url)
         signing_key = jwks_client.get_signing_key_from_jwt(token)
         payload = jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256"],
-            audience=os.getenv("CLOUDFLARE_AUD_TAG", CLOUDFLARE_AUD_TAG),
-            issuer=os.getenv("CLOUDFLARE_ISSUER", CLOUDFLARE_ISSUER),
+            audience=aud,
+            issuer=iss,
         )
         return payload.get("email")
     except (jwt.PyJWTError, Exception) as e:

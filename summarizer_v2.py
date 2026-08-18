@@ -18,11 +18,6 @@ __all__ = [
 
 try:
     from openai import (
-        APIConnectionError,
-        APIError,
-        APIStatusError,
-    )
-    from openai import (
         OpenAI as _OpenAI,
     )
 
@@ -323,9 +318,9 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
             model=model_name,
             input=[text_input],
         )
-        data = response.data[0].embedding if response.data else None
-    except (APIError, APIStatusError, APIConnectionError):
-        # Fallback to httpx for vLLM compatibility
+        data = response.data[0].embedding if response and response.data else None
+    except Exception as e:
+        shared_logger.warning("OpenAI embed SDK failed (%s: %s); falling back to httpx", type(e).__name__, e)
         try:
             resp = httpx.post(
                 f"{llm_url}/v1/embeddings",
@@ -341,7 +336,8 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
             )
             if resp.status_code == 200:
                 result = resp.json()
-                data = result.get("data", [{}])[0].get("embedding")
+                items = result.get("data") or []
+                data = items[0].get("embedding") if items else None
             else:
                 shared_logger.error(
                     "vLLM embed HTTP error: %s %s",
@@ -349,8 +345,8 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
                     resp.text[:200],
                 )
                 return None
-        except httpx.HTTPError:
-            shared_logger.exception("vLLM embed httpx fallback failed")
+        except Exception as fallback_err:
+            shared_logger.exception("vLLM embed httpx fallback failed: %s", fallback_err)
             return None
 
     return data

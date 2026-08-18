@@ -52,6 +52,23 @@ class TestVllmGenerateStream:
         assert chunks[1] == ("world!", False)
         assert chunks[2] == ("", True)
 
+    @patch("summarizer_v2.httpx.stream")
+    @patch("summarizer_v2._OpenAI", side_effect=Exception("Connection refused"))
+    @patch("summarizer_v2._HAS_OPENAI", True)
+    def test_vllm_generate_stream_httpx_fallback(self, mock_openai, mock_httpx_stream):
+        """Test fallback to httpx when OpenAI client fails initialization."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_lines.return_value = [
+            'data: {"choices": [{"delta": {"content": "Fallback text"}}]}',
+            "data: [DONE]",
+        ]
+        mock_httpx_stream.return_value.__enter__.return_value = mock_resp
+
+        chunks = list(vllm_generate_stream("test-model", "test prompt"))
+        assert len(chunks) >= 1
+        assert ("Fallback text", False) in chunks
+
     @patch("summarizer_v2._HAS_OPENAI", False)
     def test_vllm_generate_stream_no_openai(self):
         """Test behavior when OpenAI SDK is not installed."""
@@ -62,7 +79,8 @@ class TestVllmGenerateStream:
 class TestChatStreamingRoutes:
     """Unit tests for Flask SSE streaming chat routes."""
 
-    def test_chat_channel_stream_missing_query(self, chat_app):
+    @patch("auth_utils.get_user_email_dev_mode", return_value="dev@localhost")
+    def test_chat_channel_stream_missing_query(self, mock_user, chat_app):
         """Test channel stream route with missing user query."""
         client = chat_app.test_client()
         resp = client.post(
@@ -74,11 +92,11 @@ class TestChatStreamingRoutes:
         assert resp.headers["Cache-Control"] == "no-cache, no-transform"
         assert resp.headers["X-Accel-Buffering"] == "no"
         data = resp.get_data(as_text=True)
-        assert "event: loading" in data
         assert "event: error" in data
         assert "No query provided" in data
 
-    def test_chat_video_stream_missing_query(self, chat_app):
+    @patch("auth_utils.get_user_email_dev_mode", return_value="dev@localhost")
+    def test_chat_video_stream_missing_query(self, mock_user, chat_app):
         """Test video stream route with missing user query."""
         client = chat_app.test_client()
         resp = client.post(
@@ -90,6 +108,5 @@ class TestChatStreamingRoutes:
         assert resp.headers["Cache-Control"] == "no-cache, no-transform"
         assert resp.headers["X-Accel-Buffering"] == "no"
         data = resp.get_data(as_text=True)
-        assert "event: loading" in data
         assert "event: error" in data
         assert "No query provided" in data

@@ -13,8 +13,17 @@ from dataclasses import dataclass
 import jwt
 from flask import request
 
+
 # JWT configuration
-JWT_SECRET = os.getenv("JWT_SECRET_KEY", os.urandom(32).hex())
+def get_jwt_secret() -> str:
+    secret = os.getenv("JWT_SECRET_KEY") or os.getenv("FLASK_SECRET_KEY")
+    if not secret:
+        if os.getenv("FLASK_ENV") != "development":
+            raise RuntimeError("JWT_SECRET_KEY or FLASK_SECRET_KEY must be set in production.")
+        return "dev-jwt-secret-key-change-in-production"
+    return secret
+
+
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
@@ -44,7 +53,7 @@ class JWTAuth:
             "exp": now + datetime.timedelta(hours=JWT_EXPIRATION_HOURS),
             "jti": os.urandom(16).hex(),
         }
-        return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
     @staticmethod
     def validate_token(token: str) -> TokenPayload | None:
@@ -52,7 +61,7 @@ class JWTAuth:
         try:
             payload = jwt.decode(
                 token,
-                JWT_SECRET,
+                get_jwt_secret(),
                 algorithms=[JWT_ALGORITHM],
                 options={"require": ["sub", "role", "exp", "iat", "jti"]},
             )
@@ -63,7 +72,7 @@ class JWTAuth:
                 iat=payload["iat"],
                 jti=payload["jti"],
             )
-        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        except (jwt.PyJWTError, KeyError, TypeError):
             return None
 
     @staticmethod

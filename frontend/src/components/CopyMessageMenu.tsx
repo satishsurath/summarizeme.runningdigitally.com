@@ -20,8 +20,11 @@ export function CopyMessageMenu({
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close menu on click outside
+  // Close menu on click outside or Escape key
   useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
@@ -29,8 +32,12 @@ export function CopyMessageMenu({
     }
     if (menuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
     }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [menuOpen]);
 
   const copyToClipboard = async (textToCopy: string, label: string = "Copied!") => {
@@ -45,13 +52,19 @@ export function CopyMessageMenu({
     }
   };
 
-  const stripHtml = (html: string): string => {
-    if (!html) return "";
-    return html
+  const stripFormatting = (text: string): string => {
+    if (!text) return "";
+    return text
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<\/p>/gi, "\n\n")
       .replace(/<\/li>/gi, "\n")
       .replace(/<[^>]+>/g, "")
+      // Strip markdown syntax
+      .replace(/#{1,6}\s+/g, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
       .replace(/&amp;/g, "&")
       .replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">")
@@ -63,7 +76,7 @@ export function CopyMessageMenu({
 
   // Default Copy action (Answer only, plain text)
   const handleDefaultCopy = () => {
-    const textToCopy = role === "user" ? content : stripHtml(answer || content);
+    const textToCopy = role === "user" ? content : stripFormatting(answer || content);
     copyToClipboard(textToCopy, "Copied!");
   };
 
@@ -127,6 +140,9 @@ export function CopyMessageMenu({
         <button
           type="button"
           onClick={() => setMenuOpen((prev) => !prev)}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label="More copy options"
           className={`p-0.5 rounded-md text-[11px] transition-colors ${
             role === "user"
               ? "text-blue-200 hover:bg-blue-600/60 hover:text-white"
@@ -148,14 +164,17 @@ export function CopyMessageMenu({
 
       {/* Options Dropdown Menu */}
       {menuOpen && (
-        <div className="absolute right-0 top-full mt-1 w-56 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg py-1 z-50 text-xs text-gray-700 dark:text-gray-200 animate-in fade-in slide-in-from-top-2 duration-150">
+        <div
+          role="menu"
+          className="absolute right-0 bottom-full mb-1 w-56 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg py-1 z-50 text-xs text-gray-700 dark:text-gray-200"
+        >
           <div className="px-3 py-1 font-semibold text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-100 dark:border-gray-700/60">
             Copy Options
           </div>
 
           <button
             type="button"
-            onClick={() => copyToClipboard(stripHtml(answer || content), "Copied Answer!")}
+            onClick={() => copyToClipboard(stripFormatting(answer || content), "Copied Answer!")}
             className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between transition-colors"
           >
             <span>📋 Copy Answer Only (Plain Text)</span>
@@ -174,7 +193,7 @@ export function CopyMessageMenu({
               type="button"
               onClick={() =>
                 copyToClipboard(
-                  `Thought process:\n${thinking}\n\nAnswer:\n${stripHtml(answer || "")}`,
+                  `Thought process:\n${thinking}\n\nAnswer:\n${stripFormatting(answer || "")}`,
                   "Copied with Thoughts!",
                 )
               }

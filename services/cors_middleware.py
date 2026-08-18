@@ -11,8 +11,8 @@ from flask import Flask, Response, request
 
 DEFAULT_ALLOWED = ["http://localhost:3000", "http://localhost:3001"]
 
-raw = os.getenv("NEXT_API_URL", "").split(",") + DEFAULT_ALLOWED
-ALLOWED_ORIGINS = list(dict.fromkeys(raw))  # dedupe, preserve order
+raw_urls = [url.strip() for url in os.getenv("NEXT_API_URL", "").split(",") if url.strip()]
+ALLOWED_ORIGINS = list(dict.fromkeys(raw_urls + DEFAULT_ALLOWED))  # dedupe, preserve order
 
 
 def init_cors(app: Flask) -> None:
