@@ -9,6 +9,9 @@ import { useState, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { chatVideoStream } from "@/lib/api";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { ThinkingBlock } from "@/components/ThinkingBlock";
+import { CopyMessageMenu } from "@/components/CopyMessageMenu";
+import { parseThinkingContent } from "@/lib/thinking";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -56,11 +59,20 @@ function SparkleIcon({ className }: { className?: string }) {
 // Message types
 // ---------------------------------------------------------------------------
 
+function formatTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, { hour12: true });
+  } catch {
+    return "";
+  }
+}
+
 interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  formattedTime: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +89,7 @@ export default function ChatVideoPage() {
       role: "assistant",
       content: "Hello! I can answer questions about this video. What would you like to know?",
       timestamp: new Date().toISOString(),
+      formattedTime: formatTime(new Date().toISOString()),
     },
   ]);
   const [input, setInput] = useState("");
@@ -100,13 +113,12 @@ export default function ChatVideoPage() {
       role: "user",
       content: input.trim(),
       timestamp: new Date().toISOString(),
+      formattedTime: formatTime(new Date().toISOString()),
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setLoading(true);
-
-    // Create placeholder for streaming response
     const streamMsgId = Date.now() + 1;
     setMessages((prev) => [
       ...prev,
@@ -115,6 +127,7 @@ export default function ChatVideoPage() {
         role: "assistant" as const,
         content: "",
         timestamp: new Date().toISOString(),
+        formattedTime: "",
       },
     ]);
     setStreamingMsgId(streamMsgId);
@@ -136,7 +149,7 @@ export default function ChatVideoPage() {
           onDone: (answer: string) => {
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === streamMsgId ? { ...m, content: answer } : m,
+                m.id === streamMsgId ? { ...m, content: answer, formattedTime: formatTime(new Date().toISOString()) } : m,
               ),
             );
             setStreamingMsgId(null);
@@ -145,7 +158,7 @@ export default function ChatVideoPage() {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === streamMsgId
-                  ? { ...m, content: `Error: ${error}` }
+                  ? { ...m, content: `Error: ${error}`, formattedTime: formatTime(new Date().toISOString()) }
                   : m,
               ),
             );
@@ -160,6 +173,7 @@ export default function ChatVideoPage() {
             ? {
                 ...m,
                 content: `Error: ${err instanceof Error ? err.message : "Failed to get response"}`,
+                formattedTime: formatTime(new Date().toISOString()),
               }
             : m,
         ),
@@ -209,37 +223,65 @@ export default function ChatVideoPage() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            {msg.role === "assistant" && (
-              <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center shrink-0">
-                <BotIcon className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-              </div>
-            )}
+        {messages.map((msg) => {
+          const isAssistant = msg.role === "assistant";
+          const parsed = isAssistant
+            ? parseThinkingContent(msg.content, msg.id === streamingMsgId)
+            : null;
+
+          return (
             <div
-              className={`max-w-[80%] rounded-xl px-4 py-3 ${
-                msg.role === "user"
-                  ? "bg-blue-500 text-white"
-                  : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              }`}
+              key={msg.id}
+              className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
-              <div className="text-sm leading-relaxed whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.content) }} />
-              <span className={`text-xs mt-1 block ${
-                msg.role === "user" ? "text-blue-200" : "text-gray-400"
-              }`}>
-                {new Date(msg.timestamp).toLocaleTimeString(undefined, { hour12: true })}
-              </span>
-            </div>
-            {msg.role === "user" && (
-              <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                <UserIcon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              {isAssistant && (
+                <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center shrink-0">
+                  <BotIcon className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                </div>
+              )}
+              <div
+                className={`max-w-[80%] rounded-xl px-4 py-3 ${
+                  msg.role === "user"
+                    ? "bg-blue-500 text-white"
+                    : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                }`}
+              >
+                {isAssistant && parsed?.thinking && (
+                  <ThinkingBlock
+                    thinking={parsed.thinking}
+                    isStreaming={parsed.isThinkingActive}
+                  />
+                )}
+                <div
+                  className="text-sm leading-relaxed whitespace-pre-wrap"
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeHtml(isAssistant ? parsed?.answer || "" : msg.content),
+                  }}
+                />
+                <div className="flex items-center justify-between mt-2 pt-1 border-t border-black/5 dark:border-white/5 gap-4">
+                  <span
+                    className={`text-xs ${
+                      msg.role === "user" ? "text-blue-200" : "text-gray-400"
+                    }`}
+                  >
+                    {msg.formattedTime}
+                  </span>
+                  <CopyMessageMenu
+                    content={msg.content}
+                    thinking={parsed?.thinking}
+                    answer={parsed?.answer || msg.content}
+                    role={msg.role}
+                  />
+                </div>
               </div>
-            )}
-          </div>
-        ))}
+              {msg.role === "user" && (
+                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                  <UserIcon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                </div>
+              )}
+            </div>
+          );
+        })}
         {loading && (
           <div className="flex gap-3">
             <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center shrink-0">

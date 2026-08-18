@@ -40,7 +40,10 @@ def md_safe(s):
     Note: Markdown 3.x dropped safe_mode; pre-escaping the input is the
     correct replacement.
     """
-    return markdown.markdown(str(_html_escape(s))) if s else ""
+    if not s:
+        return ""
+    rendered = markdown.markdown(str(_html_escape(s)))
+    return rendered.replace("&#39;", "'").replace("&#34;", '"').replace("&quot;", '"').replace("&apos;", "'")
 
 
 load_dotenv()
@@ -109,12 +112,11 @@ def require_role(allowed_roles):
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
-            # Lazy lookup to allow test patching of app.get_current_user
             import app as app_module
 
             get_current_user_func = getattr(app_module, "get_current_user", get_current_user)
             email, role = get_current_user_func()
-            if not email:
+            if not bool(email):
                 # not authenticated
                 return abort(403, "Unauthorized")
             if role not in allowed_roles:

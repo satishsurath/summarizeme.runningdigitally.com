@@ -1,6 +1,7 @@
 """Chat blueprint — chat-channel and chat-video routes (page + API)."""
 
 import json
+import re
 
 import requests
 from flask import (
@@ -28,6 +29,149 @@ from app_config import (
 from db.models import Video, VideoFolder
 
 chat_bp = Blueprint("chat", __name__)
+
+
+def _clean_answer_start(answer: str) -> str:
+    """Clean leading stray checkmarks, status tags, or HTML paragraph wrappers from answer text."""
+    if not answer:
+        return ""
+    cleaned = answer.strip()
+    while True:
+        prev = cleaned
+        cleaned = re.sub(
+            r"^(?:<p>\s*(?:[✅✓]|\[Response Text\]|\[Output\]|\[Done\.?\]|Proceeds\.?)\s*<\/p>|<br\s*\/?>|\s)*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip()
+        cleaned = re.sub(
+            r"^(?:->|=>|-&gt;|[✅✓]|\"|'|\s)+",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip()
+        if cleaned == prev:
+            break
+    return cleaned
+
+
+def separate_thinking_and_answer(text: str) -> tuple[str | None, str]:
+    """Separate reasoning/thinking content from main answer in model output text."""
+    if not text:
+        return None, ""
+
+    # 1. <think> ... </think> XML tags
+    think_match = re.search(r"<think>(.*?)</think>", text, re.DOTALL | re.IGNORECASE)
+    if think_match:
+        thinking = think_match.group(1).strip()
+        raw_answer = (text[: think_match.start()] + text[think_match.end() :]).strip()
+        answer = _clean_answer_start(raw_answer)
+        return thinking or None, answer
+
+    # 2. "Here's a thinking process:" or "Thinking Process:" prefix
+    prefix_match = re.match(
+        r"^\s*(?:Here(?:'|&#39;|\u2019)?s a thinking process:|Thinking Process:|Thought Process:)",
+        text,
+        re.IGNORECASE,
+    )
+    if prefix_match:
+        prefix_len = prefix_match.end()
+        rest = text[prefix_len:]
+
+        # Transition marker patterns ordered by specificity
+        transition_patterns = [
+            r"\(Done\.\)",
+            r"\[Done\.\]",
+            r"\(Done\)",
+            r"\[Done\]",
+            r"\(Finished\.\)",
+            r"\[Finished\.\]",
+            r"\[Output Generation\](?:\s*(?:-|&amp;|-&gt;|->)\s*Proceeds)?",
+            r"\[Output\]",
+            r"Final Answer:",
+            r"Final Output:",
+            r"(?:\[)?Proceeds?(?:\.|\s*\])?",
+            r"✅ Output matches\.\s*(?:\[Proceeds\])?",
+        ]
+        combined_pattern = r"(?:" + "|".join(transition_patterns) + r")"
+        matches = list(re.finditer(combined_pattern, rest, re.IGNORECASE))
+
+        if matches:
+            # Pick the last match that leaves non-empty answer text
+            chosen_match = matches[-1]
+            for m in reversed(matches):
+                candidate_ans = rest[m.end() :].strip()
+                if candidate_ans:
+                    chosen_match = m
+                    break
+
+            thinking = rest[: chosen_match.end()].strip()
+            raw_answer = rest[chosen_match.end() :].strip()
+            answer = _clean_answer_start(raw_answer)
+            if thinking and answer:
+                return thinking, answer
+
+        # Fallback: Split on double newline before final paragraph
+        double_newline_match = re.search(
+            r"\n\n(?=(?:This video|Here is|In this|The video|Answer:|[A-Z][a-z0-9\s]{2,30}:))",
+            rest,
+            re.IGNORECASE,
+        )
+        if double_newline_match:
+            thinking = rest[: double_newline_match.start()].strip()
+            raw_answer = rest[double_newline_match.end() :].strip()
+            answer = _clean_answer_start(raw_answer)
+            return thinking or None, answer or text
+
+    return None, _clean_answer_start(text)
+
+
+def format_youtube_citations_html(unique_videos: dict[str, str]) -> str:
+    """Format unique YouTube videos as styled citation card markup with YouTube logo."""
+    if not unique_videos:
+        return ""
+
+    yt_logo_svg = (
+        '<svg class="w-4 h-4 text-red-600 inline-block shrink-0" viewBox="0 0 24 24" fill="currentColor">'
+        '<path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 '
+        "3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 "
+        "9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 "
+        '15.568V8.432L15.818 12l-6.273 3.568z"/>'
+        "</svg>"
+    )
+    ext_icon_svg = (
+        '<svg class="w-3.5 h-3.5 text-gray-400 group-hover:text-red-400 shrink-0 ml-1" fill="none" '
+        'stroke="currentColor" viewBox="0 0 24 24">'
+        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 '
+        '002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>'
+        "</svg>"
+    )
+
+    html = (
+        '<div class="youtube-citations mt-3 pt-2 border-t border-gray-200/40 dark:border-gray-700/40">\n'
+        '  <div class="flex items-center gap-1.5 text-[10px] font-bold text-red-600 dark:text-red-400 mb-1 '
+        'uppercase tracking-wider">\n'
+        f"    {yt_logo_svg}\n"
+        "    <span>Videos used in Context</span>\n"
+        "  </div>\n"
+        '  <div class="flex flex-wrap gap-1.5 mt-0.5">\n'
+    )
+    for vid_id, vid_title in unique_videos.items():
+        safe_vid_id = _html_escape(vid_id)
+        safe_vid_title = _html_escape(vid_title)
+        html += (
+            f'    <a href="https://www.youtube.com/watch?v={safe_vid_id}" target="_blank" rel="noopener noreferrer"\n'
+            '       class="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-900 text-white '
+            "dark:bg-gray-800 dark:text-gray-100 border border-gray-700 hover:bg-gray-800 "
+            'dark:hover:bg-gray-700 transition-all shadow-xs group">\n'
+            f"      {yt_logo_svg}\n"
+            f'      <span class="truncate max-w-sm text-xs font-semibold text-white dark:text-gray-100">'
+            f"{safe_vid_title}</span>\n"
+            f"      {ext_icon_svg}\n"
+            "    </a>\n"
+        )
+    html += "  </div>\n</div>\n"
+    return html
 
 
 # ---------------------------------------------------------------------------
@@ -162,15 +306,7 @@ def api_chat_channel(channel_name):
                 final_answer = "No answer was returned by the model."
 
             if unique_videos:
-                used_videos_html = "<h4>Videos used in Context:</h4>\n<ul>\n"
-                for vid_id, vid_title in unique_videos.items():
-                    safe_vid_id = _html_escape(vid_id)
-                    safe_vid_title = _html_escape(vid_title)
-                    used_videos_html += (
-                        f'<li><a href="https://www.youtube.com/watch?v={safe_vid_id}"'
-                        f' target="_blank">{safe_vid_title}</a></li>\n'
-                    )
-                used_videos_html += "</ul>\n"
+                used_videos_html = format_youtube_citations_html(unique_videos)
 
     except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
         logger.exception("Error during chat-channel flow:")
@@ -178,9 +314,12 @@ def api_chat_channel(channel_name):
     finally:
         session.close()
 
-    final_answer_html = md_safe(final_answer)
+    thinking, main_answer = separate_thinking_and_answer(final_answer)
+    final_answer_html = md_safe(main_answer)
     if used_videos_html:
         final_answer_html += used_videos_html
+    if thinking:
+        final_answer_html = f"<think>{thinking}</think>\n\n{final_answer_html}"
 
     return jsonify({"answer": final_answer_html})
 
@@ -250,7 +389,10 @@ def api_chat_video(video_id):
     finally:
         session.close()
 
-    final_answer_html = md_safe(final_answer)
+    thinking, main_answer = separate_thinking_and_answer(final_answer)
+    final_answer_html = md_safe(main_answer)
+    if thinking:
+        final_answer_html = f"<think>{thinking}</think>\n\n{final_answer_html}"
     return jsonify({"answer": final_answer_html})
 
 
@@ -344,19 +486,13 @@ def api_chat_channel_stream(channel_name):
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
                         sys.stdout.flush()
 
-                answer_html = md_safe(full_answer)
+                thinking, main_answer = separate_thinking_and_answer(full_answer)
+                answer_html = md_safe(main_answer)
                 if unique_videos:
-                    answer_html += "<h4>Videos used in Context:</h4>\n<ul>\n"
-                    for vid_id, vid_title in unique_videos.items():
-                        safe_vid_id = _html_escape(vid_id)
-                        safe_vid_title = _html_escape(vid_title)
-                        answer_html += (
-                            f'<li><a href="https://www.youtube.com/watch?v={safe_vid_id}"'
-                            f' target="_blank">{safe_vid_title}</a></li>\n'
-                        )
-                    answer_html += "</ul>\n"
+                    answer_html += format_youtube_citations_html(unique_videos)
 
-                yield f"data: {json.dumps({'answer': answer_html, 'done': True})}\n\n"
+                final_payload_text = f"<think>{thinking}</think>\n\n{answer_html}" if thinking else answer_html
+                yield f"data: {json.dumps({'answer': final_payload_text, 'done': True})}\n\n"
         except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
             logger.exception("Error during chat-channel stream:")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
@@ -444,8 +580,10 @@ def api_chat_video_stream(video_id):
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
                         sys.stdout.flush()
 
-                answer_html = md_safe(full_answer)
-                yield f"data: {json.dumps({'answer': answer_html, 'done': True})}\n\n"
+                thinking, main_answer = separate_thinking_and_answer(full_answer)
+                answer_html = md_safe(main_answer)
+                final_payload_text = f"<think>{thinking}</think>\n\n{answer_html}" if thinking else answer_html
+                yield f"data: {json.dumps({'answer': final_payload_text, 'done': True})}\n\n"
         except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
             logger.exception("Error during chat-video stream:")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
