@@ -262,7 +262,7 @@ def api_chat_channel(channel_name):
     final_answer = ""
     used_videos_html = ""
     try:
-        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL)
+        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
@@ -355,7 +355,7 @@ def api_chat_video(video_id):
     session = SessionLocal()
     final_answer = ""
     try:
-        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL)
+        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
         if not user_query_emb:
             return jsonify({"answer": "Failed to get embedding for user query."}), 500
 
@@ -364,20 +364,30 @@ def api_chat_video(video_id):
         raw_sql = raw_sql.replace(":q_emb", emb_literal)
         chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
 
-        if not chunk_rows:
-            if selected_table != "public.videos_transcript_no_ts_embedding":
-                tmpl = chat_video_sql_templates["public.videos_transcript_no_ts_embedding"]
-                raw_sql = tmpl % {"view": "public.videos_transcript_no_ts_embedding"}
-                raw_sql = raw_sql.replace(":q_emb", emb_literal)
-                chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
-            if not chunk_rows:
-                final_answer = (
-                    "No relevant content found for this video and data type. "
-                    "Try selecting 'Transcript' or generate summaries first."
-                )
+        if not chunk_rows and selected_table != "public.videos_transcript_no_ts_embedding":
+            tmpl = chat_video_sql_templates["public.videos_transcript_no_ts_embedding"]
+            raw_sql = tmpl % {"view": "public.videos_transcript_no_ts_embedding"}
+            raw_sql = raw_sql.replace(":q_emb", emb_literal)
+            chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
 
-        if chunk_rows and not final_answer:
-            context_pieces = [f"Chunk: {row[0]}" for row in chunk_rows]
+        # Retrieve full video transcript to leverage 256K long context window
+        video_obj = session.query(Video).filter_by(video_id=video_id).first()
+        full_transcript: str = str(getattr(video_obj, "transcript_no_ts", "") or "") if video_obj is not None else ""
+        video_title: str = (
+            str(getattr(video_obj, "title", video_id) or video_id) if video_obj is not None else str(video_id)
+        )
+        has_context = bool(chunk_rows) or bool(full_transcript)
+
+        if not has_context:
+            final_answer = (
+                "No relevant content found for this video and data type. "
+                "Try selecting 'Transcript' or generate summaries first."
+            )
+
+        if has_context and not final_answer:
+            context_pieces = [f"Retrieved Chunk (similarity={row[1]:.4f}): {row[0]}" for row in chunk_rows]
+            if full_transcript:
+                context_pieces.append(f"Full Video Transcript for '{video_title}':\n{full_transcript}")
             context_for_generation = "\n\n".join(context_pieces)
             prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
             final_answer = vllm_generate_chunk(model_name, prompt_text)
@@ -439,7 +449,7 @@ def api_chat_channel_stream(channel_name):
 
         session = SessionLocal()
         try:
-            user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL)
+            user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
             if not user_query_emb:
                 yield 'event: error\ndata: {"error":"Failed to get embedding for user query."}\n\n'
                 return
@@ -545,7 +555,7 @@ def api_chat_video_stream(video_id):
 
         session = SessionLocal()
         try:
-            user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL)
+            user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
             if not user_query_emb:
                 yield 'event: error\ndata: {"error":"Failed to get embedding for user query."}\n\n'
                 return
@@ -555,21 +565,33 @@ def api_chat_video_stream(video_id):
             raw_sql = raw_sql.replace(":q_emb", emb_literal)
             chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
 
-            if not chunk_rows:
-                if selected_table != "public.videos_transcript_no_ts_embedding":
-                    tmpl = chat_video_sql_templates["public.videos_transcript_no_ts_embedding"]
-                    raw_sql = tmpl % {"view": "public.videos_transcript_no_ts_embedding"}
-                    raw_sql = raw_sql.replace(":q_emb", emb_literal)
-                    chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
-                if not chunk_rows:
-                    yield (
-                        'event: done\ndata: {"answer":"No relevant content found for this video '
-                        "and data type. Try selecting 'Transcript' or generate summaries first.\"}\n\n"
-                    )
-                    return
+            if not chunk_rows and selected_table != "public.videos_transcript_no_ts_embedding":
+                tmpl = chat_video_sql_templates["public.videos_transcript_no_ts_embedding"]
+                raw_sql = tmpl % {"view": "public.videos_transcript_no_ts_embedding"}
+                raw_sql = raw_sql.replace(":q_emb", emb_literal)
+                chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
 
-            if chunk_rows:
-                context_pieces = [f"Chunk: {row[0]}" for row in chunk_rows]
+            # Retrieve full video transcript to leverage 256K long context window
+            video_obj = session.query(Video).filter_by(video_id=video_id).first()
+            full_transcript: str = (
+                str(getattr(video_obj, "transcript_no_ts", "") or "") if video_obj is not None else ""
+            )
+            video_title: str = (
+                str(getattr(video_obj, "title", video_id) or video_id) if video_obj is not None else str(video_id)
+            )
+            has_context = bool(chunk_rows) or bool(full_transcript)
+
+            if not has_context:
+                yield (
+                    'event: done\ndata: {"answer":"No relevant content found for this video '
+                    "and data type. Try selecting 'Transcript' or generate summaries first.\"}\n\n"
+                )
+                return
+
+            if has_context:
+                context_pieces = [f"Retrieved Chunk (similarity={row[1]:.4f}): {row[0]}" for row in chunk_rows]
+                if full_transcript:
+                    context_pieces.append(f"Full Video Transcript for '{video_title}':\n{full_transcript}")
                 context_for_generation = "\n\n".join(context_pieces)
                 prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
 

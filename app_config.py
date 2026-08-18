@@ -141,7 +141,7 @@ _CHAT_CHANNEL_SQL_TEMPLATE = """
     JOIN video_folders vf ON s.video_id = vf.video_id
     JOIN videos v        ON s.video_id = v.video_id
     WHERE vf.folder_name = :chan
-    ORDER BY similarity DESC LIMIT 5
+    ORDER BY similarity DESC LIMIT 15
 """
 
 CHAT_CHANNEL_SQL_TEMPLATES = {
@@ -156,7 +156,7 @@ CHAT_CHANNEL_SQL_TEMPLATES = {
     JOIN video_folders vf ON ev.source_id = vf.video_id
     JOIN videos v        ON ev.source_id = v.video_id
     WHERE vf.folder_name = :chan
-    ORDER BY similarity DESC LIMIT 5
+    ORDER BY similarity DESC LIMIT 15
 """,
 }
 
@@ -164,7 +164,7 @@ CHAT_CHANNEL_SQL_TEMPLATES = {
 # Single base template for video queries (all keys share identical SQL)
 _CHAT_VIDEO_SQL_TEMPLATE = """
     SELECT content, 1 - (embedding <=> :q_emb) AS similarity
-    FROM %(view)s WHERE source_id = :vid ORDER BY similarity DESC LIMIT 5
+    FROM %(view)s WHERE source_id = :vid ORDER BY similarity DESC LIMIT 15
 """
 
 CHAT_VIDEO_SQL_TEMPLATES = {

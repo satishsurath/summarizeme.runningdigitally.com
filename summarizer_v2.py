@@ -306,15 +306,24 @@ def vllm_generate_stream(model_name: str, prompt: str):
             yield "", True
 
 
-def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-v1.5"):
+def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-v1.5", is_query=False):
     """
     Generate embedding via vLLM backend.
     Args:
         text_input: Single string to embed
         client: Optional OpenAI client for dependency injection (testing)
         model_name: Embedding model identifier (default: nomic embed)
+        is_query: If True, uses 'search_query: ' prefix; else 'search_document: ' for Nomic v1.5
     """
     from app_config import shared_logger
+
+    if (
+        text_input
+        and isinstance(text_input, str)
+        and not (text_input.startswith("search_query: ") or text_input.startswith("search_document: "))
+    ):
+        prefix = "search_query: " if is_query else "search_document: "
+        text_input = f"{prefix}{text_input}"
 
     llm_url = VLLM_EMBED_URL
     if not _HAS_OPENAI:
