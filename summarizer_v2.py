@@ -5,6 +5,17 @@ import re
 import httpx
 from dotenv import load_dotenv
 
+from prompts import build_prompts_for_chunk  # re-exported for callers
+
+__all__ = [
+    "build_prompts_for_chunk",
+    "chunk_transcript",
+    "split_into_sentences",
+    "vllm_embed_chunk",
+    "vllm_generate_chunk",
+    "vllm_generate_stream",
+]
+
 try:
     from openai import (
         APIConnectionError,
@@ -111,56 +122,14 @@ def chunk_transcript(transcript, max_words_per_chunk=4000):
 # ----------------------------
 
 
-def build_prompts_for_chunk(chunk_text):
-    """
-    Return a dict of four prompts:
-    - "concise": a short summary
-    - "key_topics": high-level topics
-    - "takeaways": key insights, lessons
-    - "comprehensive": thorough notes capturing examples, references, quotes, etc.
-
-    We add a bit more "context" or "instruction" for each prompt.
-    """
-    return {
-        "concise": f"""
-You are an expert summarizer. Read the following text and produce a concise summary
-(no more than 150 words) covering the main idea only:
-
-TEXT:
-{chunk_text}
-""".strip(),
-        "key_topics": f"""
-You are an expert note-taker. From the following text, list the main topics or themes
-(with short bullet points), focusing on clarity and coverage:
-
-TEXT:
-{chunk_text}
-""".strip(),
-        "takeaways": f"""
-You are a teaching assistant. From the text below, list the key takeaways or lessons
-the reader should remember. Focus on clarity and practical insights, in short bullet points:
-
-TEXT:
-{chunk_text}
-""".strip(),
-        "comprehensive": f"""
-You are a meticulous researcher. Provide a comprehensive set of notes about
-the following text, capturing major points, examples, references, or quotes.
-Organize your notes with headings or bullet points. Aim for thoroughness:
-
-TEXT:
-{chunk_text}
-""".strip(),
-    }
-
-
-def vllm_generate_chunk(model_name, prompt, client=None):
+def vllm_generate_chunk(model_name, prompt, client=None, system_prompt=None):
     """
     Generate text via vLLM backend.
     Args:
         model_name: Model identifier
         prompt: Prompt text
         client: Optional OpenAI client for dependency injection (testing)
+        system_prompt: Optional system persona prompt
     """
     from app_config import shared_logger
 
@@ -169,12 +138,18 @@ def vllm_generate_chunk(model_name, prompt, client=None):
     if not _HAS_OPENAI:
         shared_logger.error("openai SDK not installed")
         return ""
+
+    messages_list = []
+    if system_prompt:
+        messages_list.append({"role": "system", "content": system_prompt})
+    messages_list.append({"role": "user", "content": prompt})
+
     base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
     try:
         chat_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
         response = chat_client.chat.completions.create(
             model=model_name,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages_list,
             max_tokens=4096,
         )
         msg = response.choices[0].message if response.choices else None
@@ -186,7 +161,7 @@ def vllm_generate_chunk(model_name, prompt, client=None):
                 f"{llm_url}/v1/chat/completions",
                 json={
                     "model": model_name,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": messages_list,
                     "max_tokens": 4096,
                 },
                 headers={
@@ -216,7 +191,7 @@ def vllm_generate_chunk(model_name, prompt, client=None):
     return data.strip() if data else ""
 
 
-def vllm_generate_stream(model_name: str, prompt: str):
+def vllm_generate_stream(model_name: str, prompt: str, system_prompt: str | None = None):
     """
     Generate text via vLLM backend with streaming (SSE) support.
     Yields (chunk_text: str, done: bool) tuples.
@@ -231,12 +206,17 @@ def vllm_generate_stream(model_name: str, prompt: str):
         yield "", True
         return
 
+    messages_list = []
+    if system_prompt:
+        messages_list.append({"role": "system", "content": system_prompt})
+    messages_list.append({"role": "user", "content": prompt})
+
     base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
     try:
         chat_client = _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
         stream = chat_client.chat.completions.create(
             model=model_name,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages_list,
             max_tokens=4096,
             stream=True,
         )
@@ -259,7 +239,7 @@ def vllm_generate_stream(model_name: str, prompt: str):
 
             payload = {
                 "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages_list,
                 "max_tokens": 4096,
                 "stream": True,
             }
