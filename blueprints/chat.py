@@ -27,6 +27,7 @@ from app_config import (
     vllm_generate_chunk,
 )
 from db.models import Video, VideoFolder
+from prompts import SYSTEM_PROMPT_RAG, build_chat_prompt
 
 chat_bp = Blueprint("chat", __name__)
 
@@ -295,13 +296,9 @@ def api_chat_channel(channel_name):
                 unique_videos[chunk_vid_id] = chunk_vid_title
 
             context_for_generation = "\n\n".join(context_pieces)
-            prompt_str = (
-                f"\nContext:\n{context_for_generation}"
-                f"\n\nUser Query:\n{user_query}"
-                f"\n\nPlease provide a concise answer:\n"
-            )
+            prompt_str = build_chat_prompt(context_for_generation, user_query)
 
-            final_answer = vllm_generate_chunk(model_name, prompt_str)
+            final_answer = vllm_generate_chunk(model_name, prompt_str, system_prompt=SYSTEM_PROMPT_RAG)
             if not final_answer:
                 final_answer = "No answer was returned by the model."
 
@@ -389,8 +386,8 @@ def api_chat_video(video_id):
             if full_transcript:
                 context_pieces.append(f"Full Video Transcript for '{video_title}':\n{full_transcript}")
             context_for_generation = "\n\n".join(context_pieces)
-            prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
-            final_answer = vllm_generate_chunk(model_name, prompt_text)
+            prompt_text = build_chat_prompt(context_for_generation, user_query)
+            final_answer = vllm_generate_chunk(model_name, prompt_text, system_prompt=SYSTEM_PROMPT_RAG)
             if not final_answer:
                 final_answer = "No answer was returned by the model."
     except (requests.exceptions.RequestException, SQLAlchemyError, ValueError, KeyError) as e:
@@ -483,14 +480,10 @@ def api_chat_channel_stream(channel_name):
                     unique_videos[chunk_vid_id] = chunk_vid_title
 
                 context_for_generation = "\n\n".join(context_pieces)
-                prompt_str = (
-                    f"\nContext:\n{context_for_generation}"
-                    f"\n\nUser Query:\n{user_query}"
-                    f"\n\nPlease provide a concise answer:\n"
-                )
+                prompt_str = build_chat_prompt(context_for_generation, user_query)
 
                 full_answer = ""
-                for delta, _ in vllm_generate_stream(model_name, prompt_str):
+                for delta, _ in vllm_generate_stream(model_name, prompt_str, system_prompt=SYSTEM_PROMPT_RAG):
                     if delta:
                         full_answer += delta
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
@@ -593,10 +586,10 @@ def api_chat_video_stream(video_id):
                 if full_transcript:
                     context_pieces.append(f"Full Video Transcript for '{video_title}':\n{full_transcript}")
                 context_for_generation = "\n\n".join(context_pieces)
-                prompt_text = f"Query: {user_query}\nContext:\n{context_for_generation}"
+                prompt_text = build_chat_prompt(context_for_generation, user_query)
 
                 full_answer = ""
-                for delta, _ in vllm_generate_stream(model_name, prompt_text):
+                for delta, _ in vllm_generate_stream(model_name, prompt_text, system_prompt=SYSTEM_PROMPT_RAG):
                     if delta:
                         full_answer += delta
                         yield f"data: {json.dumps({'delta': delta})}\n\n"

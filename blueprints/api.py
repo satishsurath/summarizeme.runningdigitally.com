@@ -23,11 +23,11 @@ from app_config import (
     shared_logger as logger,
 )
 from db.models import SummariesV2, Video, VideoFolder
+from prompts import SYSTEM_PROMPT_SUMMARIZER
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
-@api_bp.route("/channel/start", methods=["POST"])
 @require_role(["admin"])  # Only allow admins to start channel downloads
 def api_channel_start():
     """Start downloading transcripts for the entire channel."""
@@ -189,11 +189,21 @@ def api_summarize_v2():
                 all_concise, all_topics, all_takeaways, all_comprehensive = [], [], [], []
 
                 for chunk_str in chunked_texts:
-                    prompts = build_prompts_for_chunk(chunk_str)
-                    all_concise.append(vllm_generate_chunk(model_name, prompts["concise"]))
-                    all_topics.append(vllm_generate_chunk(model_name, prompts["key_topics"]))
-                    all_takeaways.append(vllm_generate_chunk(model_name, prompts["takeaways"]))
-                    all_comprehensive.append(vllm_generate_chunk(model_name, prompts["comprehensive"]))
+                    prompts = build_prompts_for_chunk(str(chunk_str))
+                    all_concise.append(
+                        vllm_generate_chunk(model_name, prompts["concise"], system_prompt=SYSTEM_PROMPT_SUMMARIZER)
+                    )
+                    all_topics.append(
+                        vllm_generate_chunk(model_name, prompts["key_topics"], system_prompt=SYSTEM_PROMPT_SUMMARIZER)
+                    )
+                    all_takeaways.append(
+                        vllm_generate_chunk(model_name, prompts["takeaways"], system_prompt=SYSTEM_PROMPT_SUMMARIZER)
+                    )
+                    all_comprehensive.append(
+                        vllm_generate_chunk(
+                            model_name, prompts["comprehensive"], system_prompt=SYSTEM_PROMPT_SUMMARIZER
+                        )
+                    )
 
                 new_summary = SummariesV2(
                     video_id=vid,
@@ -346,7 +356,7 @@ def api_refresh_channel():
 
         human_playlist_name = folder_obj.folder_name
         original_playlist_id = folder_obj.original_playlist_id or human_playlist_name
-        content_type = folder_obj.content_type or "playlist"
+        content_type = str(getattr(folder_obj, "content_type", "playlist") or "playlist")
         if content_type == "video":
             channel_url = f"https://www.youtube.com/watch?v={original_playlist_id}"
         else:
