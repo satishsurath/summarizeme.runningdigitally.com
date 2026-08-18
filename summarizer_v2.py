@@ -154,8 +154,8 @@ def vllm_generate_chunk(model_name, prompt, client=None, system_prompt=None):
         )
         msg = response.choices[0].message if response.choices else None
         data = msg.content if msg and msg.content else (getattr(msg, "reasoning", None) or "")
-    except Exception:
-        # Fallback to httpx for vLLM compatibility
+    except Exception as e:
+        shared_logger.warning("OpenAI SDK generation failed (%s: %s); falling back to httpx", type(e).__name__, e)
         try:
             resp = httpx.post(
                 f"{llm_url}/v1/chat/completions",
@@ -170,19 +170,19 @@ def vllm_generate_chunk(model_name, prompt, client=None, system_prompt=None):
                 },
                 timeout=120,
             )
-            try:
-                result = resp.json()
-                msg = result.get("choices", [{}])[0].get("message", {})
-                data = msg.get("content") or msg.get("reasoning") or ""
-            except Exception:
-                shared_logger.error("vLLM returned invalid JSON: %s", resp.text[:200])
-                return ""
             if resp.status_code != 200:
                 shared_logger.error(
                     "vLLM HTTP error: %s %s",
                     resp.status_code,
                     resp.text[:200],
                 )
+                return ""
+            try:
+                result = resp.json()
+                msg = result.get("choices", [{}])[0].get("message", {})
+                data = msg.get("content") or msg.get("reasoning") or ""
+            except Exception as json_err:
+                shared_logger.error("vLLM returned invalid JSON: %s (%s)", resp.text[:200], json_err)
                 return ""
         except httpx.HTTPError:
             shared_logger.exception("vLLM httpx fallback failed")
@@ -191,7 +191,7 @@ def vllm_generate_chunk(model_name, prompt, client=None, system_prompt=None):
     return data.strip() if data else ""
 
 
-def vllm_generate_stream(model_name: str, prompt: str, system_prompt: str | None = None):
+def vllm_generate_stream(model_name: str, prompt: str, system_prompt: str | None = None, client=None):
     """
     Generate text via vLLM backend with streaming (SSE) support.
     Yields (chunk_text: str, done: bool) tuples.
@@ -212,78 +212,85 @@ def vllm_generate_stream(model_name: str, prompt: str, system_prompt: str | None
     messages_list.append({"role": "user", "content": prompt})
 
     base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
+    yielded_any = False
     try:
-        chat_client = _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
+        chat_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
         stream = chat_client.chat.completions.create(
             model=model_name,
             messages=messages_list,
             max_tokens=4096,
             stream=True,
         )
-        full_text = ""
         for chunk in stream:
             delta = chunk.choices[0].delta if chunk.choices else None
             delta_content = (delta.content if delta and delta.content else "") or (
                 getattr(delta, "reasoning", None) or "" if delta else ""
             )
             if delta_content:
-                full_text += delta_content
+                yielded_any = True
                 yield delta_content, False
         yield "", True
-    except Exception:
-        # Fallback to httpx streaming for vLLM compatibility
-        try:
-            import json
-
-            import httpx
-
-            payload = {
-                "model": model_name,
-                "messages": messages_list,
-                "max_tokens": 4096,
-                "stream": True,
-            }
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {_VLLM_GEN_API_KEY}",
-            }
-            with httpx.stream(
-                "POST",
-                f"{llm_url}/v1/chat/completions",
-                json=payload,
-                headers=headers,
-                timeout=120,
-            ) as resp:
-                if resp.status_code != 200:
-                    shared_logger.error(
-                        "vLLM streaming HTTP error: %s %s",
-                        resp.status_code,
-                        resp.text[:200],
-                    )
-                    yield "", True
-                    return
-                full_text = ""
-                for line in resp.iter_lines():
-                    text = line  # httpx iter_lines returns str, not bytes
-                    if not text or text.startswith(":"):
-                        continue
-                    if text.startswith("data: "):
-                        data_str = text[6:]
-                        if data_str == "[DONE]":
-                            yield "", True
-                            return
-                        try:
-                            data = json.loads(data_str)
-                            delta = data.get("choices", [{}])[0].get("delta", {})
-                            delta_content = delta.get("content", "") or ""
-                            full_text += delta_content
-                            yield delta_content, False
-                        except (json.JSONDecodeError, KeyError, IndexError):
-                            continue
-                yield "", True
-        except httpx.HTTPError:
-            shared_logger.exception("vLLM streaming httpx fallback failed")
+        return
+    except Exception as e:
+        if yielded_any:
+            shared_logger.error("OpenAI stream interrupted mid-generation: %s", e)
             yield "", True
+            return
+        shared_logger.warning("OpenAI stream initialization failed (%s); falling back to httpx", e)
+
+    # Fallback to httpx streaming for vLLM compatibility (only if no chunks were emitted)
+    try:
+        import json
+
+        import httpx
+
+        payload = {
+            "model": model_name,
+            "messages": messages_list,
+            "max_tokens": 4096,
+            "stream": True,
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {_VLLM_GEN_API_KEY}",
+        }
+        with httpx.stream(
+            "POST",
+            f"{llm_url}/v1/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=120,
+        ) as resp:
+            if resp.status_code != 200:
+                resp.read()
+                shared_logger.error(
+                    "vLLM streaming HTTP error: %s %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                yield "", True
+                return
+            for line in resp.iter_lines():
+                text = line  # httpx iter_lines returns str, not bytes
+                if not text or text.startswith(":"):
+                    continue
+                if text.startswith("data: "):
+                    data_str = text[6:]
+                    if data_str == "[DONE]":
+                        yield "", True
+                        return
+                    try:
+                        data = json.loads(data_str)
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        delta_content = delta.get("content") or delta.get("reasoning") or ""
+                        if delta_content:
+                            yield delta_content, False
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
+            yield "", True
+    except httpx.HTTPError:
+        shared_logger.exception("vLLM streaming httpx fallback failed")
+        yield "", True
 
 
 def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-v1.5", is_query=False):

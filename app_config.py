@@ -161,18 +161,27 @@ CHAT_CHANNEL_SQL_TEMPLATES = {
 }
 
 
-# Single base template for video queries (all keys share identical SQL)
-_CHAT_VIDEO_SQL_TEMPLATE = """
+# Video query template for summary embeddings (joins summaries_v2 to resolve video_id)
+_CHAT_VIDEO_SUMMARY_SQL_TEMPLATE = """
+    SELECT ev.content, 1 - (ev.embedding <=> :q_emb) AS similarity
+    FROM %(view)s ev
+    JOIN summaries_v2 s ON ev.source_id = s.id::VARCHAR
+    WHERE s.video_id = :vid
+    ORDER BY similarity DESC LIMIT 15
+"""
+
+# Video query template for transcript embeddings (source_id is video_id directly)
+_CHAT_VIDEO_TRANSCRIPT_SQL_TEMPLATE = """
     SELECT content, 1 - (embedding <=> :q_emb) AS similarity
     FROM %(view)s WHERE source_id = :vid ORDER BY similarity DESC LIMIT 15
 """
 
 CHAT_VIDEO_SQL_TEMPLATES = {
-    "public.summaries_v2_comprehensive_notes_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
-    "public.summaries_v2_concise_summary_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
-    "public.summaries_v2_key_topics_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
-    "public.summaries_v2_important_takeaways_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
-    "public.videos_transcript_no_ts_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
+    "public.summaries_v2_comprehensive_notes_embedding": _CHAT_VIDEO_SUMMARY_SQL_TEMPLATE,
+    "public.summaries_v2_concise_summary_embedding": _CHAT_VIDEO_SUMMARY_SQL_TEMPLATE,
+    "public.summaries_v2_key_topics_embedding": _CHAT_VIDEO_SUMMARY_SQL_TEMPLATE,
+    "public.summaries_v2_important_takeaways_embedding": _CHAT_VIDEO_SUMMARY_SQL_TEMPLATE,
+    "public.videos_transcript_no_ts_embedding": _CHAT_VIDEO_TRANSCRIPT_SQL_TEMPLATE,
 }
 
 

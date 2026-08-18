@@ -28,6 +28,7 @@ from prompts import SYSTEM_PROMPT_SUMMARIZER
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
+@api_bp.route("/channel/start", methods=["POST"])
 @require_role(["admin"])  # Only allow admins to start channel downloads
 def api_channel_start():
     """Start downloading transcripts for the entire channel."""
@@ -63,17 +64,14 @@ def api_channel_status(task_id):
 
 @api_bp.route("/videos/<channel_name>", methods=["GET"])
 def api_get_videos(channel_name):
-    page = int(request.args.get("page", 1))
-    page_size = int(request.args.get("page_size", 5))
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        page_size = min(100, max(1, int(request.args.get("page_size", 5))))
+    except (ValueError, TypeError):
+        return jsonify({"status": "error", "message": "Invalid page or page_size"}), 400
     sort_by = request.args.get("sort_by", "title")
     sort_order = request.args.get("sort_order", "asc").lower()
     filter_str = request.args.get("filter", "").strip().lower()
-
-    # Bounds check
-    if page < 1:
-        page = 1
-    if page_size < 1 or page_size > 100:
-        page_size = 5
 
     session = SessionLocal()
     try:
@@ -380,6 +378,7 @@ def api_refresh_channel():
 
 
 @api_bp.route("/channels/delete", methods=["POST"])
+@require_role(["admin"])
 def api_delete_channel():
     """Deletes a channel (folder_name) from the database."""
     session = SessionLocal()

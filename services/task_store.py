@@ -97,12 +97,13 @@ class TaskStore:
                 self._client = redis.from_url(redis_url, decode_responses=True)
                 self._client.ping()
                 logger.info("TaskStore connected to Redis at %s", redis_url)
-            except redis.ConnectionError:
+            except (redis.ConnectionError, redis.TimeoutError, Exception) as e:
                 logger.warning(
-                    "Redis unavailable at %s, task store will be read-only",
+                    "Redis unavailable at %s (%s); falling back to thread-safe in-memory task store",
                     redis_url,
+                    e,
                 )
-                self._client = _ReadOnlyRedis()
+                self._client = _InMemoryTaskStore()
 
     # ------------------------------------------------------------------
     # Core operations
@@ -115,7 +116,9 @@ class TaskStore:
         total: int = 0,
     ) -> str:
         """Create a new task and return its ID."""
-        task_id = f"{task_type[:2]}_{int(time.time() * 1000)}"
+        import uuid
+
+        task_id = f"{task_type[:2]}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
         now = time.time()
         task = TaskInfo(
             task_id=task_id,
@@ -224,6 +227,8 @@ class TaskStore:
                 task = self.get_task(tid_str)
                 if task is None:
                     continue
+                if status is not None and task.status != status:
+                    continue
                 if task_type is not None and task.task_type != task_type:
                     continue
                 results.append(task)
@@ -285,19 +290,64 @@ class TaskStore:
             self._client.set(key, json.dumps(task.to_dict()))
 
 
-class _ReadOnlyRedis:
-    """Mock Redis client for when Redis is unavailable."""
+class _InMemoryTaskStore:
+    """Thread-safe in-memory fallback when Redis is unavailable."""
 
-    def __getattr__(self, name: str):
-        def _noop(*_args, **_kwargs):
-            logger.debug("TaskStore: Redis unavailable, op ignored: %s", name)
-            if name in ("smembers", "keys"):
-                return []
-            if name in ("scard",):
-                return 0
-            return None
+    def __init__(self):
+        import threading
 
-        return _noop
+        self._kv: dict[str, str] = {}
+        self._sets: dict[str, set[str]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> str | None:
+        with self._lock:
+            return self._kv.get(key)
+
+    def set(self, key: str, value: str) -> bool:
+        with self._lock:
+            self._kv[key] = value
+            return True
+
+    def setex(self, key: str, _time: int, value: str) -> bool:
+        with self._lock:
+            self._kv[key] = value
+            return True
+
+    def delete(self, key: str) -> bool:
+        with self._lock:
+            self._kv.pop(key, None)
+            return True
+
+    def sadd(self, name: str, value: str) -> int:
+        with self._lock:
+            s = self._sets.setdefault(name, set())
+            if value not in s:
+                s.add(value)
+                return 1
+            return 0
+
+    def srem(self, name: str, value: str) -> int:
+        with self._lock:
+            s = self._sets.get(name)
+            if s and value in s:
+                s.remove(value)
+                return 1
+            return 0
+
+    def smembers(self, name: str) -> set[str]:
+        with self._lock:
+            return set(self._sets.get(name, set()))
+
+    def scard(self, name: str) -> int:
+        with self._lock:
+            return len(self._sets.get(name, set()))
+
+    def expire(self, _key: str, _ttl: int) -> bool:
+        return True
+
+    def persist(self, _key: str) -> bool:
+        return True
 
     def ping(self) -> bool:
-        return False
+        return True

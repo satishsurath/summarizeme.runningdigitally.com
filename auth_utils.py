@@ -6,8 +6,6 @@ import jwt
 from dotenv import load_dotenv
 from flask import request
 from jwt import PyJWKClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from db.models import User
 from services.jwt_auth import JWTAuth
@@ -20,11 +18,16 @@ CLOUDFLARE_JWKS_URL = os.getenv("CLOUDFLARE_JWKS_URL")
 CLOUDFLARE_ISSUER = os.getenv("CLOUDFLARE_ISSUER")
 CLOUDFLARE_AUD_TAG = os.getenv("CLOUDFLARE_AUD_TAG")
 
-DB_URL = os.getenv("DATABASE_URL")
-if not DB_URL:
-    raise RuntimeError("DATABASE_URL is not set. Create a .env file or export DATABASE_URL before starting auth_utils.")
-engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)
-SessionLocal = sessionmaker(bind=engine)
+_jwks_client: PyJWKClient | None = None
+
+
+def _get_jwks_client() -> PyJWKClient | None:
+    global _jwks_client
+    if not CLOUDFLARE_JWKS_URL:
+        return None
+    if _jwks_client is None:
+        _jwks_client = PyJWKClient(CLOUDFLARE_JWKS_URL, cache_keys=True)
+    return _jwks_client
 
 
 def _get_user_email_from_cf_jwt() -> str | None:
@@ -34,17 +37,18 @@ def _get_user_email_from_cf_jwt() -> str | None:
         return None
 
     try:
-        jwks_client = PyJWKClient(CLOUDFLARE_JWKS_URL)
+        jwks_url = os.getenv("CLOUDFLARE_JWKS_URL", CLOUDFLARE_JWKS_URL)
+        jwks_client = PyJWKClient(jwks_url)
         signing_key = jwks_client.get_signing_key_from_jwt(token)
         payload = jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256"],
-            audience=CLOUDFLARE_AUD_TAG,
-            issuer=CLOUDFLARE_ISSUER,
+            audience=os.getenv("CLOUDFLARE_AUD_TAG", CLOUDFLARE_AUD_TAG),
+            issuer=os.getenv("CLOUDFLARE_ISSUER", CLOUDFLARE_ISSUER),
         )
         return payload.get("email")
-    except jwt.exceptions.InvalidTokenError as e:
+    except (jwt.PyJWTError, Exception) as e:
         logger.warning("Invalid CF Access token: %s", e)
         return None
 
@@ -85,6 +89,8 @@ def get_current_user():
     """
     Returns a tuple: (email, role) or (None, None) if unauthenticated.
     """
+    from app_config import SessionLocal
+
     email = get_user_email_dev_mode()
     if not email:
         return None, None
@@ -94,13 +100,18 @@ def get_current_user():
         user_obj = session.query(User).filter_by(email=email).first()
         if user_obj:
             return (user_obj.email, user_obj.role)
-        else:
-            # Auto-provision new user with default=reader
-            # In dev mode, auto-give admin role
-            role = "admin" if os.getenv("DEV_AUTH_ENABLED") == "true" else "reader"
-            new_user = User(email=email, role=role)
-            session.add(new_user)
+
+        role = "admin" if os.getenv("DEV_AUTH_ENABLED") == "true" else "reader"
+        new_user = User(email=email, role=role)
+        session.add(new_user)
+        try:
             session.commit()
             return (new_user.email, new_user.role)
+        except Exception:
+            session.rollback()
+            existing = session.query(User).filter_by(email=email).first()
+            if existing:
+                return (existing.email, existing.role)
+            raise
     finally:
         session.close()
