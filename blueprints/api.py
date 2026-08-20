@@ -3,10 +3,10 @@
 import datetime
 import re
 import threading
-import uuid
 
 import requests
 from flask import Blueprint, jsonify, request
+from sqlalchemy.exc import IntegrityError
 
 from app_config import (
     VLLM_EMBED_URL,
@@ -16,26 +16,17 @@ from app_config import (
     build_prompts_for_chunk,
     chunk_transcript,
     download_channel_transcripts,
-    download_statuses,
     require_role,
-    summarize_v2_statuses,
+    task_store,
     vllm_generate_chunk,
 )
 from app_config import (
     shared_logger as logger,
 )
 from db.models import SummariesV2, Video, VideoFolder
+from prompts import SYSTEM_PROMPT_SUMMARIZER
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
-
-
-def _snapshot_status_items(statuses):
-    """Return a concrete snapshot of task entries for safer top-level iteration.
-
-    This protects against key insertions/removals while building task lists, but
-    nested status dict values may still be updated concurrently by background work.
-    """
-    return list(statuses.items())
 
 
 @api_bp.route("/channel/start", methods=["POST"])
@@ -47,17 +38,15 @@ def api_channel_start():
         return jsonify({"status": "error", "message": "No channel_url provided"}), 400
 
     channel_url = data["channel_url"].strip()
-    task_id = f"dl_{uuid.uuid4().hex[:8]}"
-    download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
+    task_id = task_store.create_task("download", {"channel_url": channel_url})
 
     def run_download():
         try:
-            download_channel_transcripts(channel_url, download_statuses[task_id])
-            download_statuses[task_id]["status"] = "completed"
+            download_channel_transcripts(channel_url, task_store, task_id)
+            task_store.update_task(task_id, status="completed")
         except Exception as e:
             logger.error("Error in channel download: %s", e)
-            download_statuses[task_id]["status"] = "failed"
-            download_statuses[task_id]["errors"].append(str(e))
+            task_store.update_task(task_id, status="failed", errors=[str(e)])
 
     thread = threading.Thread(target=run_download, daemon=True)
     thread.start()
@@ -68,25 +57,22 @@ def api_channel_start():
 @api_bp.route("/channel/status/<task_id>", methods=["GET"])
 def api_channel_status(task_id):
     """Returns the status of an ongoing channel download process."""
-    status = download_statuses.get(task_id)
-    if not status:
+    task = task_store.get_task(task_id)
+    if not task:
         return jsonify({"status": "error", "message": "Invalid task ID"}), 404
-    return jsonify(status)
+    return jsonify(task.to_dict())
 
 
 @api_bp.route("/videos/<channel_name>", methods=["GET"])
 def api_get_videos(channel_name):
-    page = int(request.args.get("page", 1))
-    page_size = int(request.args.get("page_size", 5))
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        page_size = min(100, max(1, int(request.args.get("page_size", 5))))
+    except (ValueError, TypeError):
+        return jsonify({"status": "error", "message": "Invalid page or page_size"}), 400
     sort_by = request.args.get("sort_by", "title")
     sort_order = request.args.get("sort_order", "asc").lower()
     filter_str = request.args.get("filter", "").strip().lower()
-
-    # Bounds check
-    if page < 1:
-        page = 1
-    if page_size < 1 or page_size > 100:
-        page_size = 5
 
     session = SessionLocal()
     try:
@@ -138,12 +124,13 @@ def api_get_videos(channel_name):
 
 
 @api_bp.route("/summarize_v2", methods=["POST"])
+@require_role(["admin", "member"])
 def api_summarize_v2():
     """Generate a v2 summary for multiple videos."""
     data = request.get_json() or {}
     channel_name = data.get("channel_name", "").strip()
     video_ids = data.get("video_ids", [])
-    model_name = data.get("model", "nemo-qwen3.6-35b-a3b-nvfp4")
+    model_name = data.get("model_name") or data.get("model") or "nemo-qwen3.6-35b-a3b-nvfp4"
 
     if not channel_name or not video_ids:
         return jsonify({"status": "error", "message": "channel_id or video_ids missing"}), 400
@@ -151,8 +138,11 @@ def api_summarize_v2():
     if len(video_ids) > 50:
         return jsonify({"status": "error", "message": "Maximum 50 videos per request"}), 400
 
-    task_id = f"summ_v2_{uuid.uuid4().hex[:8]}"
-    summarize_v2_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": len(video_ids), "errors": []}
+    task_id = task_store.create_task(
+        "summarize",
+        {"channel_name": channel_name, "model": model_name},
+        total=len(video_ids),
+    )
 
     def run_summarize_v2():
         session = SessionLocal()
@@ -173,16 +163,18 @@ def api_summarize_v2():
                 if existing_summary:
                     logger.info("[SummariesV2] Skipping %s, summary already exists for model=%r.", vid, model_name)
                     processed_count += 1
-                    summarize_v2_statuses[task_id]["processed"] = processed_count
+                    task_store.update_task(task_id, processed=processed_count)
                     continue
 
                 video_obj = session.query(Video).filter_by(video_id=vid).first()
                 if not video_obj:
                     msg = f"Video {vid} not found in DB."
                     logger.error(msg)
-                    summarize_v2_statuses[task_id]["errors"].append(msg)
+                    task = task_store.get_task(task_id)
+                    err_list = ([*task.errors, msg]) if task else [msg]
+                    task_store.update_task(task_id, errors=err_list)
                     processed_count += 1
-                    summarize_v2_statuses[task_id]["processed"] = processed_count
+                    task_store.update_task(task_id, processed=processed_count)
                     continue
 
                 transcript = video_obj.transcript_no_ts or ""
@@ -197,11 +189,21 @@ def api_summarize_v2():
                 all_concise, all_topics, all_takeaways, all_comprehensive = [], [], [], []
 
                 for chunk_str in chunked_texts:
-                    prompts = build_prompts_for_chunk(chunk_str)
-                    all_concise.append(vllm_generate_chunk(model_name, prompts["concise"]))
-                    all_topics.append(vllm_generate_chunk(model_name, prompts["key_topics"]))
-                    all_takeaways.append(vllm_generate_chunk(model_name, prompts["takeaways"]))
-                    all_comprehensive.append(vllm_generate_chunk(model_name, prompts["comprehensive"]))
+                    prompts = build_prompts_for_chunk(str(chunk_str))
+                    all_concise.append(
+                        vllm_generate_chunk(model_name, prompts["concise"], system_prompt=SYSTEM_PROMPT_SUMMARIZER)
+                    )
+                    all_topics.append(
+                        vllm_generate_chunk(model_name, prompts["key_topics"], system_prompt=SYSTEM_PROMPT_SUMMARIZER)
+                    )
+                    all_takeaways.append(
+                        vllm_generate_chunk(model_name, prompts["takeaways"], system_prompt=SYSTEM_PROMPT_SUMMARIZER)
+                    )
+                    all_comprehensive.append(
+                        vllm_generate_chunk(
+                            model_name, prompts["comprehensive"], system_prompt=SYSTEM_PROMPT_SUMMARIZER
+                        )
+                    )
 
                 new_summary = SummariesV2(
                     video_id=vid,
@@ -213,18 +215,30 @@ def api_summarize_v2():
                     important_takeaways="\n".join(all_takeaways).strip(),
                     comprehensive_notes="\n".join(all_comprehensive).strip(),
                 )
-                session.add(new_summary)
-                session.commit()
+                try:
+                    session.add(new_summary)
+                    session.commit()
+                except IntegrityError:
+                    # A concurrent request inserted the same (video_id, model_name)
+                    # between our check and insert; the unique constraint caught it.
+                    session.rollback()
+                    logger.info(
+                        "[SummariesV2] Skipping %s, summary inserted concurrently for model=%r.",
+                        vid,
+                        model_name,
+                    )
+                    processed_count += 1
+                    task_store.update_task(task_id, processed=processed_count)
+                    continue
 
                 logger.info("[SummariesV2] Inserted for video=%s, model=%s", vid, model_name)
                 processed_count += 1
-                summarize_v2_statuses[task_id]["processed"] = processed_count
+                task_store.update_task(task_id, processed=processed_count)
 
-            summarize_v2_statuses[task_id]["status"] = "completed"
+            task_store.update_task(task_id, status="completed")
         except Exception as e:
             logger.error("[SummariesV2] Error: %s", e)
-            summarize_v2_statuses[task_id]["status"] = "failed"
-            summarize_v2_statuses[task_id]["errors"].append(str(e))
+            task_store.update_task(task_id, status="failed", errors=[str(e)])
         finally:
             session.close()
 
@@ -237,36 +251,30 @@ def api_summarize_v2():
 @api_bp.route("/summarize_v2/status/<task_id>", methods=["GET"])
 def api_summarize_v2_status(task_id):
     """Returns progress for the SummariesV2 generation task."""
-    status = summarize_v2_statuses.get(task_id)
-    if not status:
+    task = task_store.get_task(task_id)
+    if not task:
         return jsonify({"status": "error", "message": "Invalid task ID"}), 404
-    return jsonify(status)
+    return jsonify(task.to_dict())
 
 
 @api_bp.route("/active-tasks", methods=["GET"])
 def api_active_tasks():
     """Return list of active (pending/running) tasks for the notification dropdown."""
     active = []
-    for task_id, status in _snapshot_status_items(download_statuses):
-        if status.get("status") in ("pending", "in_progress"):
+    for task in task_store.list_tasks():
+        if task.status in ("pending", "in_progress"):
+            name_map = {"download": "Download", "summarize": "Summarize"}
             active.append(
                 {
-                    "task_id": task_id,
-                    "name": f"Download: {task_id}",
-                    "status": status["status"],
-                    "processed": status.get("processed", 0),
-                    "total": status.get("total", 0),
-                }
-            )
-    for task_id, status in _snapshot_status_items(summarize_v2_statuses):
-        if status.get("status") in ("pending", "in_progress"):
-            active.append(
-                {
-                    "task_id": task_id,
-                    "name": f"Summarize: {task_id}",
-                    "status": status["status"],
-                    "processed": status.get("processed", 0),
-                    "total": status.get("total", 0),
+                    "task_id": task.task_id,
+                    "task_type": task.task_type,
+                    "name": f"{name_map.get(task.task_type, task.task_type)}: {task.task_id}",
+                    "status": task.status,
+                    "processed": task.processed,
+                    "total": task.total,
+                    "errors": task.errors,
+                    "created_at": task.created_at,
+                    "updated_at": task.updated_at,
                 }
             )
     return jsonify(active)
@@ -282,6 +290,20 @@ def api_list_channels():
         session.close()
 
     return jsonify(folder_list)
+
+
+@api_bp.route("/transcript/<video_id>", methods=["GET"])
+def api_get_transcript(video_id):
+    """Returns the transcript for a specific video."""
+    session = SessionLocal()
+    try:
+        video = session.query(Video).filter_by(video_id=video_id).first()
+        if not video:
+            return jsonify({"status": "error", "message": "Video not found"}), 404
+        transcript = video.transcript_no_ts or ""
+        return jsonify({"status": "ok", "video_id": video_id, "title": video.title or "", "transcript": transcript})
+    finally:
+        session.close()
 
 
 @api_bp.route("/channels/rename", methods=["POST"])
@@ -351,19 +373,20 @@ def api_refresh_channel():
 
         human_playlist_name = folder_obj.folder_name
         original_playlist_id = folder_obj.original_playlist_id or human_playlist_name
-        channel_url = f"https://www.youtube.com/playlist?list={original_playlist_id}"
-
-        task_id = f"refresh_{uuid.uuid4().hex[:8]}"
-        download_statuses[task_id] = {"status": "in_progress", "processed": 0, "total": 0, "errors": []}
+        content_type = str(getattr(folder_obj, "content_type", "playlist") or "playlist")
+        if content_type == "video":
+            channel_url = f"https://www.youtube.com/watch?v={original_playlist_id}"
+        else:
+            channel_url = f"https://www.youtube.com/playlist?list={original_playlist_id}"
+        task_id = task_store.create_task("download", {"channel_name": channel_name_input})
 
         def run_refresh():
             try:
-                download_channel_transcripts(channel_url, download_statuses[task_id])
-                download_statuses[task_id]["status"] = "completed"
+                download_channel_transcripts(channel_url, task_store, task_id)
+                task_store.update_task(task_id, status="completed")
             except Exception as e:
                 logger.error("Error in channel refresh: %s", e)
-                download_statuses[task_id]["status"] = "failed"
-                download_statuses[task_id]["errors"].append(str(e))
+                task_store.update_task(task_id, status="failed", errors=[str(e)])
 
         thread = threading.Thread(target=run_refresh, daemon=True)
         thread.start()
@@ -374,72 +397,61 @@ def api_refresh_channel():
 
 
 @api_bp.route("/channels/delete", methods=["POST"])
-@require_role(["admin"])  # Only allow admins to delete channels
+@require_role(["admin"])
 def api_delete_channel():
     """Deletes a channel (folder_name) from the database."""
     session = SessionLocal()
+    try:
+        data = request.get_json()
+        if not data or "name" not in data:
+            return jsonify({"status": "error", "message": "No channel name provided"}), 400
 
-    data = request.get_json()
-    if not data or "name" not in data:
-        return jsonify({"status": "error", "message": "No channel name provided"}), 400
+        folder_name = data["name"].strip()
+        if not folder_name:
+            return jsonify({"status": "error", "message": "Channel name is empty."}), 400
 
-    folder_name = data["name"].strip()
-    if not folder_name:
-        return jsonify({"status": "error", "message": "Channel name is empty."}), 400
+        folders_to_delete = session.query(VideoFolder).filter_by(folder_name=folder_name).all()
 
-    folders_to_delete = session.query(VideoFolder).filter_by(folder_name=folder_name).all()
+        if not folders_to_delete:
+            return jsonify({"status": "error", "message": "Channel not found."}), 404
 
-    if not folders_to_delete:
-        return jsonify({"status": "error", "message": "Channel not found."}), 404
+        video_ids = [f.video_id for f in folders_to_delete]
 
-    video_ids = [f.video_id for f in folders_to_delete]
+        for f in folders_to_delete:
+            session.delete(f)
 
-    for f in folders_to_delete:
-        session.delete(f)
+        session.flush()
 
-    session.flush()
+        unique_video_ids = set(video_ids)
+        for vid in unique_video_ids:
+            usage_count = session.query(VideoFolder).filter_by(video_id=vid).count()
+            if usage_count == 0:
+                session.query(SummariesV2).filter_by(video_id=vid).delete()
+                session.query(Video).filter_by(video_id=vid).delete()
 
-    unique_video_ids = set(video_ids)
-    for vid in unique_video_ids:
-        usage_count = session.query(VideoFolder).filter_by(video_id=vid).count()
-        if usage_count == 0:
-            session.query(SummariesV2).filter_by(video_id=vid).delete()
-            session.query(Video).filter_by(video_id=vid).delete()
+        session.commit()
 
-    session.commit()
-
-    return jsonify({"status": "ok", "deleted_folder": folder_name})
+        return jsonify({"status": "ok", "deleted_folder": folder_name})
+    finally:
+        session.close()
 
 
 @api_bp.route("/all-tasks", methods=["GET"])
 def api_all_tasks():
-    """Return a list of all tasks (downloads and summaries) in a single JSON array."""
     all_tasks = []
-
-    for task_id, stat in _snapshot_status_items(download_statuses):
+    for task in task_store.list_tasks():
         all_tasks.append(
             {
-                "task_id": task_id,
-                "type": "download",
-                "status": stat["status"],
-                "processed": stat["processed"],
-                "total": stat["total"],
-                "errors": stat["errors"],
+                "task_id": task.task_id,
+                "task_type": task.task_type,
+                "status": task.status,
+                "processed": task.processed,
+                "total": task.total,
+                "errors": task.errors,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
             }
         )
-
-    for task_id, stat in _snapshot_status_items(summarize_v2_statuses):
-        all_tasks.append(
-            {
-                "task_id": task_id,
-                "type": "summarize",
-                "status": stat["status"],
-                "processed": stat["processed"],
-                "total": stat["total"],
-                "errors": stat["errors"],
-            }
-        )
-
     return jsonify(all_tasks)
 
 

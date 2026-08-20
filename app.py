@@ -1,7 +1,15 @@
 import os
 
 # app.py
-from flask import Flask
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_openapi3.models.info import Info
+from flask_openapi3.models.tag import Tag
+
+# ---------------------------------------------------------------------------
+# OpenAPI / Swagger docs — OpenAPI extends Flask
+# ---------------------------------------------------------------------------
+from flask_openapi3.openapi import OpenAPI
 
 from app_config import (  # noqa: F401  # test-patched names
     VLLM_EMBED_URL,
@@ -13,17 +21,41 @@ from app_config import (  # noqa: F401  # test-patched names
     get_current_user,
     logger,
     md_safe,
+    task_store,
     vllm_embed_chunk,
     vllm_generate_chunk,
 )
 
-app = Flask(__name__)
+info = Info(title="SummarizeMe API", version="2.0.0", description="YouTube channel summarization API")
+app = OpenAPI(__name__, info=info)
 app.config["SECRET_KEY"] = os.getenv(
     "FLASK_SECRET_KEY",
     os.urandom(32).hex(),
 )
 app.jinja_env.globals["ICON_DATA"] = __import__("icon_data").ICON_DATA
 app.jinja_env.globals["SIZE_MAP"] = __import__("icon_data").SIZE_MAP
+
+api_tag = Tag(name="api", description="Channel, video, and summarization operations")
+task_tag = Tag(name="tasks", description="Background task management")
+admin_tag = Tag(name="admin", description="Admin operations")
+chat_tag = Tag(name="chat", description="Chat with channel or video content")
+health_tag = Tag(name="health", description="Health check endpoints")
+
+# ---------------------------------------------------------------------------
+# Rate limiting — uses Redis backend when available, in-memory fallback
+# ---------------------------------------------------------------------------
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["100000 per day", "10000 per hour"] if os.getenv("FLASK_ENV") != "development" else [],
+    storage_uri=os.getenv("REDIS_URL", "memory://"),
+)
+# CORS
+# ---------------------------------------------------------------------------
+from services.cors_middleware import init_cors  # noqa: E402
+
+init_cors(app)
+
 
 # ---------------------------------------------------------------------------
 # Register blueprints

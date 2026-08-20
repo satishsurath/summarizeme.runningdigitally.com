@@ -2,7 +2,7 @@
 
 import json
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -133,9 +133,30 @@ class TestVllmModels:
     """Tests for the vLLM models endpoint."""
 
     def test_vllm_models_returns_list(self, client, mock_vllm_response):
-        """Should return model list from vLLM."""
-        resp = client.get("/api/vllm/models")
-        assert resp.status_code == 200
+        """Should return model list from vLLM (mocked, no live HTTP)."""
+        import blueprints.api as api_module
+
+        embed_resp = MagicMock()
+        embed_resp.json.return_value = {
+            "data": [{"id": "nemo-nomic-embed-text-v1.5", "object": "model", "owned_by": "vllm"}]
+        }
+        embed_resp.raise_for_status.return_value = None
+        gen_resp = MagicMock()
+        gen_resp.json.return_value = {
+            "data": [{"id": "nemo-qwen3.6-35b-a3b-nvfp4", "object": "model", "owned_by": "vllm"}]
+        }
+        gen_resp.raise_for_status.return_value = None
+        with patch.object(api_module.requests, "get", side_effect=[embed_resp, gen_resp]) as mock_get:
+            resp = client.get("/api/vllm/models")
+            assert resp.status_code == 200
+            data = json.loads(resp.data)
+            assert isinstance(data["models"], list)
+            # Both vLLM instances (embed + gen) are queried and their lists merged.
+            assert mock_get.call_count == 2
+            assert [m["id"] for m in data["models"]] == [
+                "nemo-nomic-embed-text-v1.5",
+                "nemo-qwen3.6-35b-a3b-nvfp4",
+            ]
 
 
 class TestAdminRoutes:
@@ -150,13 +171,13 @@ class TestAdminRoutes:
     def test_admin_update_role_requires_auth(self, client, mock_vllm_response):
         """Admin role update requires auth."""
         with patch("app.get_current_user", return_value=(None, None)):
-            resp = client.post("/admin-update-role", data={"email": "test@test.com", "role": "admin"})
+            resp = client.post("/admin-update-role", data={"user_id": "1", "role": "admin"})
             assert resp.status_code == 403
 
     def test_admin_add_user_requires_auth(self, client, mock_vllm_response):
         """Admin add user requires auth."""
         with patch("app.get_current_user", return_value=(None, None)):
-            resp = client.post("/admin-add-user", data={"email": "new@test.com", "role": "reader"})
+            resp = client.post("/admin-add-user", data={"new_email": "new@test.com", "new_role": "reader"})
             assert resp.status_code == 403
 
 
@@ -165,15 +186,10 @@ class TestActiveTasksApi:
 
     @pytest.fixture(autouse=True)
     def isolate_task_statuses(self, monkeypatch):
-        import app_config
         import blueprints.api as api_module
+        from services.task_store import TaskStore
 
-        download = {}
-        summarize = {}
-        monkeypatch.setattr(app_config, "download_statuses", download)
-        monkeypatch.setattr(app_config, "summarize_v2_statuses", summarize)
-        monkeypatch.setattr(api_module, "download_statuses", download)
-        monkeypatch.setattr(api_module, "summarize_v2_statuses", summarize)
+        monkeypatch.setattr(api_module, "task_store", TaskStore.in_memory())
 
     def test_active_tasks_returns_empty_when_no_tasks(self, client, mock_vllm_response):
         """Should return empty list when no active tasks exist."""
@@ -185,74 +201,82 @@ class TestActiveTasksApi:
 
     def test_active_tasks_includes_pending_tasks(self, client, mock_vllm_response):
         """Should include pending tasks in the response."""
-        from app_config import download_statuses
+        import blueprints.api as api_module
 
-        download_statuses["dl_test123"] = {"status": "pending", "processed": 0, "total": 5, "errors": []}
+        task_id = api_module.task_store.create_task("download")
         try:
             resp = client.get("/api/active-tasks")
             assert resp.status_code == 200
             data = json.loads(resp.data)
-            assert any(t["task_id"] == "dl_test123" for t in data)
+            assert any(t["task_id"] == task_id for t in data)
             assert any(t["status"] == "pending" for t in data)
         finally:
-            del download_statuses["dl_test123"]
+            api_module.task_store.delete_task(task_id)
 
     def test_active_tasks_includes_in_progress_tasks(self, client, mock_vllm_response):
         """Should include in_progress tasks in the response."""
-        from app_config import summarize_v2_statuses
+        import blueprints.api as api_module
 
-        summarize_v2_statuses["summ_v2_abc"] = {"status": "in_progress", "processed": 2, "total": 5, "errors": []}
+        store = api_module.task_store
+        task_id = store.create_task("summarize", total=5)
+        store.update_task(task_id, status="in_progress", processed=2)
         try:
             resp = client.get("/api/active-tasks")
             assert resp.status_code == 200
             data = json.loads(resp.data)
-            assert any(t["task_id"] == "summ_v2_abc" for t in data)
+            assert any(t["task_id"] == task_id for t in data)
         finally:
-            del summarize_v2_statuses["summ_v2_abc"]
+            store.delete_task(task_id)
 
     def test_active_tasks_excludes_completed_tasks(self, client, mock_vllm_response):
         """Should exclude completed/failed tasks from the response."""
-        from app_config import download_statuses
+        import blueprints.api as api_module
 
-        download_statuses["dl_done"] = {"status": "completed", "processed": 5, "total": 5, "errors": []}
+        store = api_module.task_store
+        task_id = store.create_task("download", total=5)
+        store.update_task(task_id, status="completed", processed=5)
         try:
             resp = client.get("/api/active-tasks")
             assert resp.status_code == 200
             data = json.loads(resp.data)
-            assert not any(t["task_id"] == "dl_done" for t in data)
+            assert not any(t["task_id"] == task_id for t in data)
         finally:
-            del download_statuses["dl_done"]
+            store.delete_task(task_id)
 
     def test_active_tasks_excludes_failed_tasks(self, client, mock_vllm_response):
         """Should exclude failed tasks from the response."""
-        from app_config import download_statuses
+        import blueprints.api as api_module
 
-        download_statuses["dl_fail"] = {"status": "failed", "processed": 2, "total": 5, "errors": ["error"]}
+        store = api_module.task_store
+        task_id = store.create_task("download", total=5)
+        store.update_task(task_id, status="failed", errors=["error"])
         try:
             resp = client.get("/api/active-tasks")
             assert resp.status_code == 200
             data = json.loads(resp.data)
-            assert not any(t["task_id"] == "dl_fail" for t in data)
+            assert not any(t["task_id"] == task_id for t in data)
         finally:
-            del download_statuses["dl_fail"]
+            store.delete_task(task_id)
 
     def test_active_tasks_response_has_required_fields(self, client, mock_vllm_response):
         """Each active task should have task_id, name, status, processed, total."""
-        from app_config import download_statuses
+        import blueprints.api as api_module
 
-        download_statuses["dl_test"] = {"status": "in_progress", "processed": 3, "total": 10, "errors": []}
+        store = api_module.task_store
+        task_id = store.create_task("download", total=10)
+        store.update_task(task_id, status="in_progress", processed=3)
         try:
             resp = client.get("/api/active-tasks")
             assert resp.status_code == 200
             data = json.loads(resp.data)
-            task = next(t for t in data if t["task_id"] == "dl_test")
+            task = next(t for t in data if t["task_id"] == task_id)
             assert "task_id" in task
             assert "name" in task
             assert "status" in task
             assert "processed" in task
             assert "total" in task
-            assert task["name"] == "Download: dl_test"
+            assert task["name"] == f"Download: {task_id}"
             assert task["processed"] == 3
             assert task["total"] == 10
         finally:
-            del download_statuses["dl_test"]
+            store.delete_task(task_id)

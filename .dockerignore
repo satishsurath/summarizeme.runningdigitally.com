@@ -46,6 +46,8 @@ docs/
 # OS
 .DS_Store
 Thumbs.db
+# Frontend (built separately; never used by the Flask app image)
+frontend/
 
 # Logs
 *.log

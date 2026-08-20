@@ -20,6 +20,9 @@ from auth_utils import get_current_user
 
 # If you store your models and sync code in separate modules:
 from db.models import SummariesV2, User, Video, VideoFolder  # noqa: F401  # re-exported for blueprints
+
+# Task store — Redis-backed, shared across all blueprints
+from services.task_store import TaskStore
 from summarizer_v2 import (  # noqa: F401  # re-exported for blueprints
     build_prompts_for_chunk,
     chunk_transcript,
@@ -28,16 +31,18 @@ from summarizer_v2 import (  # noqa: F401  # re-exported for blueprints
 )
 from youtube_utils import download_channel_transcripts  # noqa: F401  # re-exported for blueprints
 
+DEFAULT_GEN_MODEL = os.getenv("VLLM_GEN_MODEL", "nemo-qwen3.6-35b-a3b-nvfp4")
+
 
 def md_safe(s):
     """Render markdown to HTML, escaping raw HTML first to prevent XSS.
 
     markupsafe.escape converts <, >, &, ", ' to entities before markdown
     processes the string, so injected script/HTML tags are neutralised.
-    Note: Markdown 3.x dropped safe_mode; pre-escaping the input is the
-    correct replacement.
     """
-    return markdown.markdown(str(_html_escape(s))) if s else ""
+    if not s:
+        return ""
+    return markdown.markdown(str(_html_escape(s)))
 
 
 load_dotenv()
@@ -82,10 +87,7 @@ _logger.info("[Embed LLM] Using vLLM: %s", VLLM_EMBED_URL)
 _logger.info("[Gen LLM]   Using vLLM: %s", VLLM_GEN_URL)
 
 
-# In-memory storage for statuses (for demo).
-# For production, use a database or a caching layer (Redis).
-download_statuses = {}
-summarize_v2_statuses = {}
+task_store = TaskStore()
 
 
 # Define a decorator to require a specific role
@@ -102,12 +104,11 @@ def require_role(allowed_roles):
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
-            # Lazy lookup to allow test patching of app.get_current_user
             import app as app_module
 
             get_current_user_func = getattr(app_module, "get_current_user", get_current_user)
             email, role = get_current_user_func()
-            if not email:
+            if not bool(email):
                 # not authenticated
                 return abort(403, "Unauthorized")
             if role not in allowed_roles:
@@ -128,11 +129,11 @@ _CHAT_CHANNEL_SQL_TEMPLATE = """
     SELECT ev.content, s.video_id, v.title AS video_title,
            1 - (ev.embedding <=> :q_emb) AS similarity
     FROM %(view)s ev
-    JOIN summaries_v2 s ON ev.source_id = s.id::VARCHAR
+    JOIN summaries_v2 s ON ev.source_id = CAST(s.id AS VARCHAR)
     JOIN video_folders vf ON s.video_id = vf.video_id
     JOIN videos v        ON s.video_id = v.video_id
     WHERE vf.folder_name = :chan
-    ORDER BY similarity DESC LIMIT 5
+    ORDER BY similarity DESC LIMIT 15
 """
 
 CHAT_CHANNEL_SQL_TEMPLATES = {
@@ -140,22 +141,39 @@ CHAT_CHANNEL_SQL_TEMPLATES = {
     "public.summaries_v2_concise_summary_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
     "public.summaries_v2_key_topics_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
     "public.summaries_v2_important_takeaways_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
-    "public.videos_transcript_no_ts_embedding": _CHAT_CHANNEL_SQL_TEMPLATE,
+    "public.videos_transcript_no_ts_embedding": """
+    SELECT ev.content, ev.source_id AS video_id, v.title AS video_title,
+           1 - (ev.embedding <=> :q_emb) AS similarity
+    FROM %(view)s ev
+    JOIN video_folders vf ON ev.source_id = vf.video_id
+    JOIN videos v        ON ev.source_id = v.video_id
+    WHERE vf.folder_name = :chan
+    ORDER BY similarity DESC LIMIT 15
+""",
 }
 
 
-# Single base template for video queries (all keys share identical SQL)
-_CHAT_VIDEO_SQL_TEMPLATE = """
-    SELECT chunk, 1 - (embedding <=> :q_emb) AS similarity
-    FROM %(view)s WHERE source_id = :vid ORDER BY similarity DESC LIMIT 5
+# Video query template for summary embeddings (joins summaries_v2 to resolve video_id)
+_CHAT_VIDEO_SUMMARY_SQL_TEMPLATE = """
+    SELECT ev.content, 1 - (ev.embedding <=> :q_emb) AS similarity
+    FROM %(view)s ev
+    JOIN summaries_v2 s ON ev.source_id = CAST(s.id AS VARCHAR)
+    WHERE s.video_id = :vid
+    ORDER BY similarity DESC LIMIT 15
+"""
+
+# Video query template for transcript embeddings (source_id is video_id directly)
+_CHAT_VIDEO_TRANSCRIPT_SQL_TEMPLATE = """
+    SELECT content, 1 - (embedding <=> :q_emb) AS similarity
+    FROM %(view)s WHERE source_id = :vid ORDER BY similarity DESC LIMIT 15
 """
 
 CHAT_VIDEO_SQL_TEMPLATES = {
-    "public.summaries_v2_comprehensive_notes_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
-    "public.summaries_v2_concise_summary_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
-    "public.summaries_v2_key_topics_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
-    "public.summaries_v2_important_takeaways_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
-    "public.videos_transcript_no_ts_embedding": _CHAT_VIDEO_SQL_TEMPLATE,
+    "public.summaries_v2_comprehensive_notes_embedding": _CHAT_VIDEO_SUMMARY_SQL_TEMPLATE,
+    "public.summaries_v2_concise_summary_embedding": _CHAT_VIDEO_SUMMARY_SQL_TEMPLATE,
+    "public.summaries_v2_key_topics_embedding": _CHAT_VIDEO_SUMMARY_SQL_TEMPLATE,
+    "public.summaries_v2_important_takeaways_embedding": _CHAT_VIDEO_SUMMARY_SQL_TEMPLATE,
+    "public.videos_transcript_no_ts_embedding": _CHAT_VIDEO_TRANSCRIPT_SQL_TEMPLATE,
 }
 
 
