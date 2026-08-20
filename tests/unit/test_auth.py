@@ -81,15 +81,17 @@ class TestGetCurrentUser:
         from auth_utils import get_current_user
 
         os.environ.pop("DEV_AUTH_ENABLED", None)
+        os.environ["CLOUDFLARE_AUD_TAG"] = "test-aud"
+        os.environ["CLOUDFLARE_ISSUER"] = "test-iss"
         mock_payload = {"email": "admin@test.com"}
 
         with (
             app.test_request_context(),
             patch("auth_utils.request") as mock_request,
             patch("auth_utils.jwt.decode", return_value=mock_payload),
-            patch("auth_utils.PyJWKClient") as mock_jwks,
+            patch("auth_utils.PyJWKClient"),
+            patch("auth_utils._get_jwks_client", return_value=MagicMock()),
         ):
-            mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
             mock_headers = MagicMock()
             mock_headers.get.side_effect = lambda key, default=None: {
                 "Cf-Access-Jwt-Assertion": "fake_token",
@@ -99,8 +101,8 @@ class TestGetCurrentUser:
             mock_request.cookies.get.return_value = None
 
             email, role = get_current_user()
-            assert email == "admin@test.com"
-            assert role == "admin"
+            assert str(email) == "admin@test.com"
+            assert str(role) == "admin"
 
     def test_auto_provisions_new_user_as_reader(self, with_db):
         """New authenticated user should be auto-provisioned as 'reader'."""
@@ -108,15 +110,16 @@ class TestGetCurrentUser:
         from auth_utils import get_current_user
 
         os.environ.pop("DEV_AUTH_ENABLED", None)
+        os.environ["CLOUDFLARE_AUD_TAG"] = "test-aud"
+        os.environ["CLOUDFLARE_ISSUER"] = "test-iss"
         mock_payload = {"email": "newuser2@test.com"}
 
         with (
             app.test_request_context(),
             patch("auth_utils.request") as mock_request,
             patch("auth_utils.jwt.decode", return_value=mock_payload),
-            patch("auth_utils.PyJWKClient") as mock_jwks,
+            patch("auth_utils._get_jwks_client", return_value=MagicMock()),
         ):
-            mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
             mock_headers = MagicMock()
             mock_headers.get.side_effect = lambda key, default=None: {
                 "Cf-Access-Jwt-Assertion": "fake_token",
@@ -126,8 +129,8 @@ class TestGetCurrentUser:
             mock_request.cookies.get.return_value = None
 
             email, role = get_current_user()
-            assert email == "newuser2@test.com"
-            assert role == "reader"
+            assert str(email) == "newuser2@test.com"
+            assert str(role) == "reader"
 
     def test_auto_provision_creates_user_in_db(self, with_db):
         """Auto-provisioned user should exist in the database."""
@@ -135,15 +138,16 @@ class TestGetCurrentUser:
         from auth_utils import get_current_user
 
         os.environ.pop("DEV_AUTH_ENABLED", None)
+        os.environ["CLOUDFLARE_AUD_TAG"] = "test-aud"
+        os.environ["CLOUDFLARE_ISSUER"] = "test-iss"
         mock_payload = {"email": "freshuser2@test.com"}
 
         with (
             app.test_request_context(),
             patch("auth_utils.request") as mock_request,
             patch("auth_utils.jwt.decode", return_value=mock_payload),
-            patch("auth_utils.PyJWKClient") as mock_jwks,
+            patch("auth_utils._get_jwks_client", return_value=MagicMock()),
         ):
-            mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key="fake_key")
             mock_headers = MagicMock()
             mock_headers.get.side_effect = lambda key, default=None: {
                 "Cf-Access-Jwt-Assertion": "fake_token",

@@ -84,6 +84,32 @@ def view_summary_v2(summary_id):
         session.close()
 
 
+@main_bp.route("/api/summaries/<int:summary_id>", methods=["GET"])
+def api_get_summary(summary_id):
+    """Fetch SummariesV2 by ID as JSON for the Next.js frontend."""
+    session = SessionLocal()
+    try:
+        summary_obj = session.get(SummariesV2, summary_id)
+        if not summary_obj:
+            return jsonify({"error": f"SummariesV2 with ID {summary_id} not found."}), 404
+
+        return jsonify(
+            {
+                "id": summary_obj.id,
+                "video_id": summary_obj.video_id,
+                "video_title": summary_obj.video_title,
+                "model_name": summary_obj.model_name,
+                "date_generated": summary_obj.date_generated.isoformat() if summary_obj.date_generated else None,
+                "concise_summary": summary_obj.concise_summary or "",
+                "key_topics": summary_obj.key_topics or "",
+                "important_takeaways": summary_obj.important_takeaways or "",
+                "comprehensive_notes": summary_obj.comprehensive_notes or "",
+            }
+        )
+    finally:
+        session.close()
+
+
 @main_bp.route("/transcript/<video_id>")
 def view_transcript_v2(video_id):
     """Fetch Video Transcript by ID and render template."""

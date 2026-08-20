@@ -91,7 +91,7 @@ class TestApiChannelStart:
         """Channel start should return a task ID."""
         with (
             patch("app.get_current_user", return_value=("admin@test.com", "admin")),
-            patch("app.download_channel_transcripts") as mock_download,
+            patch("blueprints.api.download_channel_transcripts") as mock_download,
         ):
             mock_download.return_value = None
             resp = client.post(

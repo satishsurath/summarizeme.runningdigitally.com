@@ -11,6 +11,14 @@ At the start of a task, confirm the repository path, branch, HEAD, and dirty sta
 Do not overwrite, revert, stage, commit, push, open a pull request, merge, deploy,
 or change remote infrastructure unless the user explicitly asks for that action.
 
+## Subagent limits
+
+- Never spawn more than 2 subagents at the same time. If a task calls for more
+  parallel reviewers or workers, group the concerns into at most 2 subagents and
+  run them in one batch.
+- Prefer doing the work in the main session over delegating; delegate only when
+  the scope genuinely benefits from a separate context.
+
 ## Repository map
 
 - `app.py`: Flask routes, database sessions, background task orchestration,
@@ -91,14 +99,14 @@ After Copilot clears, run a manual review to catch issues Copilot may miss:
    .venv/bin/pytest tests/unit/ tests/integration/ -q
    ```
 
-2. **Run parallel review subagents.** Spawn 4–6 review agents in parallel, each
-   targeting a specific file or concern. Example agents:
-   - `ReviewSummarizerV2` — summarizer_v2.py: exception handling, logging, model names
-   - `ReviewAppConfig` — app_config.py: SQL templates, log messages, imports
-   - `ReviewChatBlueprint` — blueprints/chat.py: SQL query, error handling, model names
-   - `ReviewApiBlueprint` — blueprints/api.py: model defaults, logging, endpoint behavior
-   - `ReviewVectorizers` — run_vectorizers.py: UNIQUE constraint, auth token, index
-   - `ReviewTestsDocker` — tests/, Docker/, CI: coverage, build, health checks
+2. **Run parallel review subagents.** Spawn at most 2 review agents in parallel
+   (never more than 2 subagents at once), grouping the review concerns into two
+   agents. Example split:
+   - `ReviewCore` — summarizer_v2.py + app_config.py: generation/embedding calls,
+     exception handling, logging, model names, SQL templates, imports
+   - `ReviewSurfaces` — blueprints/chat.py, blueprints/api.py, run_vectorizers.py,
+     tests/, Docker/, CI: query handling, model defaults, endpoint behavior,
+     UNIQUE constraint, auth token, index, coverage, build, health checks
 
    Each agent must read the target file(s), identify issues by severity
    (CRITICAL/HIGH/MEDIUM/LOW), and report actionable fixes.

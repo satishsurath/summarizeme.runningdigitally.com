@@ -109,10 +109,10 @@ class TestBuildPromptsForChunk:
             assert "my test content" in prompt
 
     def test_prompts_have_role_instructions(self):
-        """Each prompt should have role/context instructions."""
+        """Each prompt should have structured instructions and transcript text blocks."""
         prompts = build_prompts_for_chunk("test")
-        assert "You are an" in prompts["concise"]
-        assert "teaching assistant" in prompts["takeaways"]
+        assert "<instructions>" in prompts["concise"]
+        assert "<instructions>" in prompts["takeaways"]
 
     def test_concise_prompt_limits_word_count(self):
         """Concise prompt should mention word limit."""
