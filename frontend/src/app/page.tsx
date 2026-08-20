@@ -265,28 +265,36 @@ export default function HomePage() {
 
   // Rename handler
   const handleRename = async (oldName: string, newName: string) => {
-    const res = await renameChannel(oldName, newName);
-    if (res.status === "ok") {
-      setChannels((prev) =>
-        prev.map((c) =>
-          c.folder_name === oldName ? { ...c, folder_name: newName } : c,
-        ),
-      );
-      showToast(`Renamed to "${newName}"`, "success");
-    } else {
-      showToast(res.message || "Rename failed", "error");
+    try {
+      const res = await renameChannel(oldName, newName);
+      if (res.status === "ok") {
+        setChannels((prev) =>
+          prev.map((c) =>
+            c.folder_name === oldName ? { ...c, folder_name: newName } : c,
+          ),
+        );
+        showToast(`Renamed to "${newName}"`, "success");
+      } else {
+        showToast(res.message || "Rename failed", "error");
+      }
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Rename failed", "error");
     }
   };
 
   // Delete handler
   const handleDelete = async (name: string) => {
     if (!confirm(`Delete channel "${name}"?`)) return;
-    const res = await deleteChannel(name);
-    if (res.status === "ok") {
-      setChannels((prev) => prev.filter((c) => c.folder_name !== name));
-      showToast(`Deleted "${name}"`, "success");
-    } else {
-      showToast(res.message || "Delete failed", "error");
+    try {
+      const res = await deleteChannel(name);
+      if (res.status === "ok") {
+        setChannels((prev) => prev.filter((c) => c.folder_name !== name));
+        showToast(`Deleted "${name}"`, "success");
+      } else {
+        showToast(res.message || "Delete failed", "error");
+      }
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Delete failed", "error");
     }
   };
 
@@ -294,13 +302,13 @@ export default function HomePage() {
   const handleRefresh = async (name: string) => {
     try {
       const res = await refreshChannel(name);
-      if (res.status === "ok") {
-        showToast(`Refresh started for "${name}"`, "info");
+      if (res.task_id) {
+        showToast(`Refresh started for "${name}". Task: ${res.task_id}`, "info");
       } else {
         showToast(res.message || "Refresh failed", "error");
       }
-    } catch {
-      showToast(`Failed to refresh "${name}"`, "error");
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : `Failed to refresh "${name}"`, "error");
     }
   };
 

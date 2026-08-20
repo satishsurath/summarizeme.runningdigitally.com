@@ -89,13 +89,6 @@ _logger.info("[Gen LLM]   Using vLLM: %s", VLLM_GEN_URL)
 
 task_store = TaskStore()
 
-# Legacy-compatible aliases (backed by task_store)
-# download_statuses / summarize_v2_statuses are replaced by task_store methods.
-# Old code used: download_statuses[task_id] = {...}
-# New code uses: task_store.create_task("download"), task_store.update_task(...)
-download_statuses = task_store
-summarize_v2_statuses = task_store
-
 
 # Define a decorator to require a specific role
 def require_role(allowed_roles):

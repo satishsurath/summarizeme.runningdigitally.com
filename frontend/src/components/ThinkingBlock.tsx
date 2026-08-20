@@ -17,6 +17,7 @@ export function ThinkingBlock({ thinking, isStreaming = false }: ThinkingBlockPr
   // Keep expanded while streaming unless user explicitly toggled it
   useEffect(() => {
     if (isStreaming && !userToggled) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncs expansion to the streaming prop; preserves "stay open after stream ends" behavior
       setIsExpanded(true);
     }
   }, [isStreaming, userToggled]);

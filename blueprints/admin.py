@@ -29,13 +29,18 @@ def admin_update_role():
     if not new_role or not user_id:
         abort(400, "Missing parameters")
 
+    try:
+        user_id_int = int(user_id)
+    except (TypeError, ValueError):
+        abort(400, "Invalid user_id")
+
     ALLOWED_ROLES = {"admin", "member", "reader"}
     if new_role not in ALLOWED_ROLES:
         abort(400, f"Invalid role. Must be one of: {', '.join(sorted(ALLOWED_ROLES))}")
 
     session = SessionLocal()
     try:
-        user_obj = session.get(User, user_id)
+        user_obj = session.get(User, user_id_int)
         if not user_obj:
             abort(404, "User not found")
         user_obj.role = new_role

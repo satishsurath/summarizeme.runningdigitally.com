@@ -6,6 +6,7 @@ import threading
 
 import requests
 from flask import Blueprint, jsonify, request
+from sqlalchemy.exc import IntegrityError
 
 from app_config import (
     VLLM_EMBED_URL,
@@ -214,8 +215,21 @@ def api_summarize_v2():
                     important_takeaways="\n".join(all_takeaways).strip(),
                     comprehensive_notes="\n".join(all_comprehensive).strip(),
                 )
-                session.add(new_summary)
-                session.commit()
+                try:
+                    session.add(new_summary)
+                    session.commit()
+                except IntegrityError:
+                    # A concurrent request inserted the same (video_id, model_name)
+                    # between our check and insert; the unique constraint caught it.
+                    session.rollback()
+                    logger.info(
+                        "[SummariesV2] Skipping %s, summary inserted concurrently for model=%r.",
+                        vid,
+                        model_name,
+                    )
+                    processed_count += 1
+                    task_store.update_task(task_id, processed=processed_count)
+                    continue
 
                 logger.info("[SummariesV2] Inserted for video=%s, model=%s", vid, model_name)
                 processed_count += 1
@@ -253,10 +267,14 @@ def api_active_tasks():
             active.append(
                 {
                     "task_id": task.task_id,
+                    "task_type": task.task_type,
                     "name": f"{name_map.get(task.task_type, task.task_type)}: {task.task_id}",
                     "status": task.status,
                     "processed": task.processed,
                     "total": task.total,
+                    "errors": task.errors,
+                    "created_at": task.created_at,
+                    "updated_at": task.updated_at,
                 }
             )
     return jsonify(active)
@@ -425,7 +443,7 @@ def api_all_tasks():
         all_tasks.append(
             {
                 "task_id": task.task_id,
-                "type": task.task_type,
+                "task_type": task.task_type,
                 "status": task.status,
                 "processed": task.processed,
                 "total": task.total,

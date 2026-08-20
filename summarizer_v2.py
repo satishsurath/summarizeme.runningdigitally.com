@@ -33,6 +33,8 @@ _VLLM_EMBED_HOST = os.getenv("VLLM_EMBED_HOST", "localhost")
 _VLLM_EMBED_PORT = os.getenv("VLLM_EMBED_PORT", "8001")
 _VLLM_GEN_PORT = os.getenv("VLLM_GEN_PORT", "8000")
 _VLLM_GEN_API_KEY = os.getenv("VLLM_GEN_API_KEY", "not-needed")
+# Embedding endpoint key; falls back to the generation key when unset.
+_VLLM_EMBED_API_KEY = os.getenv("VLLM_EMBED_API_KEY") or _VLLM_GEN_API_KEY
 # Build URLs
 VLLM_GEN_URL = f"http://{_VLLM_GEN_HOST}:{_VLLM_GEN_PORT}"
 VLLM_EMBED_URL = f"http://{_VLLM_EMBED_HOST}:{_VLLM_EMBED_PORT}"
@@ -308,7 +310,7 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
     if _HAS_OPENAI:
         base_url = f"{llm_url.rstrip('/')}/v1" if not llm_url.endswith("/v1") else llm_url
         try:
-            embed_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_GEN_API_KEY)
+            embed_client = client or _OpenAI(base_url=base_url, api_key=_VLLM_EMBED_API_KEY)
             response = embed_client.embeddings.create(
                 model=model_name,
                 input=[text_input],
@@ -327,7 +329,7 @@ def vllm_embed_chunk(text_input, client=None, model_name="nemo-nomic-embed-text-
                 },
                 headers={
                     "Content-Type": "application/json",
-                    "Authorization": f"Bearer {_VLLM_GEN_API_KEY}",
+                    "Authorization": f"Bearer {_VLLM_EMBED_API_KEY}",
                 },
                 timeout=30,
             )

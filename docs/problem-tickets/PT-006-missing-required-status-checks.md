@@ -19,7 +19,8 @@ This indicates a systematic gap: the `main` branch does not require status check
    - `Lint (ruff)`
    - `Tests`
    - `Docker Build`
-   - `PGAI capability (non-blocking)`
+
+   Note: `PGAI capability (non-blocking)` runs with `continue-on-error: true`, so it always reports success and cannot be a required check. It remains available as a non-blocking capability probe.
 2. **Enable required reviews:** 1 approving review, dismiss stale.
 3. **Enforce for administrators.**
 4. **Require conversation resolution.**

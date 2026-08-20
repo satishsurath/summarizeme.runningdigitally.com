@@ -182,6 +182,7 @@ export default function StatusPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-time data fetch; state updates happen inside the async load callback
     loadTasks();
   }, [loadTasks]);
 

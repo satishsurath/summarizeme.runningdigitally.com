@@ -11,7 +11,10 @@ from flask import Flask, Response, request
 
 DEFAULT_ALLOWED = ["http://localhost:3000", "http://localhost:3001"]
 
-raw_urls = [url.strip() for url in os.getenv("NEXT_API_URL", "").split(",") if url.strip()]
+# Comma-separated list of frontend origins allowed to call this API (CORS).
+# NEXT_API_URL is intentionally NOT used: it points at this backend, not at
+# the frontend origins that need to be allowed.
+raw_urls = [url.strip() for url in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if url.strip()]
 ALLOWED_ORIGINS = list(dict.fromkeys(raw_urls + DEFAULT_ALLOWED))  # dedupe, preserve order
 
 
@@ -28,8 +31,3 @@ def init_cors(app: Flask) -> None:
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Max-Age"] = "86400"
         return response
-
-    @app.route("/", methods=["OPTIONS"])
-    @app.route("/<path:path>", methods=["OPTIONS"])
-    def options_handler(path=None):
-        return "", 204

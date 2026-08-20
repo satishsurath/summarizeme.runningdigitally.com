@@ -83,13 +83,15 @@ export default function ChatPage() {
   const params = useParams();
   const channelName = params.channelName as string;
 
+  // Seed message uses empty times; the real timestamp is stamped client-side
+  // in the mount effect below to avoid an SSR/hydration mismatch.
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 0,
       role: "assistant",
       content: `Hello! I can answer questions about "${channelName}". What would you like to know?`,
-      timestamp: new Date().toISOString(),
-      formattedTime: formatTime(new Date().toISOString()),
+      timestamp: "",
+      formattedTime: "",
     },
   ]);
   const [input, setInput] = useState("");
@@ -103,6 +105,17 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingMsgId]);
+
+  // Stamp the seed message with a client-side time after mount.
+  useEffect(() => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === 0 && !m.timestamp
+          ? { ...m, timestamp: new Date().toISOString(), formattedTime: formatTime(new Date().toISOString()) }
+          : m,
+      ),
+    );
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -7,7 +7,9 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { getTranscript } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -80,6 +82,8 @@ export default function SummaryPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("summary");
   const [copied, setCopied] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
 
   // Fetch summary data
   useEffect(() => {
@@ -101,6 +105,24 @@ export default function SummaryPage() {
 
     fetchSummary();
   }, [summaryId]);
+
+  // Fetch the real transcript for the quick view (once the summary is known)
+  useEffect(() => {
+    if (!summary?.video_id) return;
+    let cancelled = false;
+    getTranscript(summary.video_id)
+      .then((res) => {
+        if (!cancelled) setTranscript(res.status === "ok" ? res.transcript : "");
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setTranscriptError(err instanceof Error ? err.message : "Failed to load transcript");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [summary?.video_id]);
 
   const tabs = [
     { id: "summary", label: "Concise Summary", icon: "📝", content: summary?.concise_summary || "" },
@@ -179,12 +201,12 @@ export default function SummaryPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <a
+          <Link
             href="/"
             className="text-sm text-gray-500 dark:text-gray-400 hover:text-blue-500 transition-colors"
           >
             ← Back to Home
-          </a>
+          </Link>
           <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-2">
             {summary.video_title}
           </h1>
@@ -252,11 +274,15 @@ export default function SummaryPage() {
           <ChevronDownIcon className="w-5 h-5 text-gray-400" />
         </summary>
         <div className="px-6 pb-4">
-          <pre className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap font-sans">
-            [0:00] Introduction to the topic...
-            {"\n"}[1:23] Main concept explanation...
-            {"\n"}[3:45] Example use case...
-          </pre>
+          {transcriptError ? (
+            <p className="text-sm text-red-600 dark:text-red-400">{transcriptError}</p>
+          ) : transcript ? (
+            <pre className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap font-sans">{transcript}</pre>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+              Transcript not available for this video.
+            </p>
+          )}
         </div>
       </details>
 

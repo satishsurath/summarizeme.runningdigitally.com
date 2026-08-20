@@ -56,7 +56,7 @@ def _get_user_email_from_cf_jwt() -> str | None:
             issuer=iss,
         )
         return payload.get("email")
-    except (jwt.PyJWTError, Exception) as e:
+    except Exception as e:
         logger.warning("Invalid CF Access token: %s", e)
         return None
 

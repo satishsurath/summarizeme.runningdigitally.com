@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from flask import Flask
 
@@ -10,7 +11,7 @@ from summarizer_v2 import vllm_generate_stream
 
 
 @pytest.fixture
-def chat_app():
+def chat_app(_test_db):
     """Create a minimal Flask app for testing chat streaming routes."""
     app = Flask(__name__)
     app.config["TESTING"] = True
@@ -69,9 +70,10 @@ class TestVllmGenerateStream:
         assert len(chunks) >= 1
         assert ("Fallback text", False) in chunks
 
+    @patch("summarizer_v2.httpx.stream", side_effect=httpx.ConnectError("connection refused"))
     @patch("summarizer_v2._HAS_OPENAI", False)
-    def test_vllm_generate_stream_no_openai(self):
-        """Test behavior when OpenAI SDK is not installed."""
+    def test_vllm_generate_stream_no_openai(self, _mock_stream):
+        """Test behavior when OpenAI SDK is not installed and the vLLM endpoint is unreachable."""
         chunks = list(vllm_generate_stream("test-model", "test prompt"))
         assert chunks == [("", True)]
 
@@ -110,3 +112,59 @@ class TestChatStreamingRoutes:
         data = resp.get_data(as_text=True)
         assert "event: error" in data
         assert "No query provided" in data
+
+    @patch("auth_utils.get_user_email_dev_mode", return_value="dev@localhost")
+    def test_chat_channel_stream_invalid_data_type(self, mock_user, chat_app):
+        """Invalid data_type should stream an error event, not 500."""
+        client = chat_app.test_client()
+        resp = client.post(
+            "/api/chat-channel/test-channel/stream",
+            json={"query": "what is this?", "data_type": "bogus_type"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_data(as_text=True)
+        assert "event: error" in data
+        assert "Invalid data type" in data
+
+    @patch("blueprints.chat.vllm_embed_chunk", return_value=[0.1, 0.2, 0.3])
+    @patch("blueprints.chat.SessionLocal")
+    @patch("auth_utils.get_user_email_dev_mode", return_value="dev@localhost")
+    def test_chat_channel_stream_no_content_emits_done_event(self, mock_user, mock_session_local, mock_embed, chat_app):
+        """When no chunks match, the stream must end with an event: done frame containing done: true."""
+        mock_session = MagicMock()
+        mock_session.execute.return_value.fetchall.return_value = []
+        mock_session_local.return_value = mock_session
+        client = chat_app.test_client()
+        resp = client.post(
+            "/api/chat-channel/test-channel/stream",
+            json={"query": "what is this?", "data_type": "comprehensive_notes"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_data(as_text=True)
+        assert "event: done" in data
+        assert '"done": true' in data
+        assert "No relevant content found" in data
+
+    @patch("summarizer_v2.vllm_generate_stream", return_value=iter([("Hello ", False), ("world", False), ("", True)]))
+    @patch("blueprints.chat.vllm_embed_chunk", return_value=[0.1, 0.2, 0.3])
+    @patch("blueprints.chat.SessionLocal")
+    @patch("auth_utils.get_user_email_dev_mode", return_value="dev@localhost")
+    def test_chat_channel_stream_deltas_then_done(self, mock_user, mock_session_local, mock_embed, mock_gen, chat_app):
+        """Delta frames are streamed, then a terminal frame with done: true."""
+        mock_session = MagicMock()
+        row = ("Chunk text", "vid1", "Video Title", 0.9)
+        mock_session.execute.return_value.fetchall.return_value = [row]
+        mock_session_local.return_value = mock_session
+        client = chat_app.test_client()
+        resp = client.post(
+            "/api/chat-channel/test-channel/stream",
+            json={"query": "what is this?", "data_type": "comprehensive_notes"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_data(as_text=True)
+        # Streaming delta frames
+        assert '{"delta": "Hello "}' in data
+        assert '{"delta": "world"}' in data
+        # Terminal frame carries the full answer and done flag
+        assert '"done": true' in data
+        assert "Hello world" in data

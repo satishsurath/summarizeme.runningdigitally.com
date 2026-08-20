@@ -73,7 +73,7 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
           DEV_AUTH_ENABLED: "true"
-        run: pytest tests/integration/ -v --cov-report=xml
+        run: pytest tests/integration/ -v --cov=app --cov=blueprints --cov=services --cov=summarizer_v2 --cov=youtube_utils --cov=db --cov-report=xml
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -123,7 +123,7 @@ jobs:
         env:
           PGAI_DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
           VLLM_EMBED_URL: "http://localhost:8001"
-          DATABASE_URL: sqlite:///tmp/pgai_test.db
+          DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
         run: pytest tests/integration/test_pgai.py -v --cov=app --cov-report=xml
 
   docker-build:
