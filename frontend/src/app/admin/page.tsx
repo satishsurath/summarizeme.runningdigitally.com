@@ -169,6 +169,7 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-time data fetch; state updates happen inside the async load callback
     loadChannels();
   }, [loadChannels]);
 
@@ -412,7 +413,7 @@ export default function AdminPage() {
         <Modal title="Delete Channel" onClose={() => { setShowDeleteModal(false); setDeletingChannel(null); }}>
           <div className="space-y-4">
             <p className="text-sm text-gray-700 dark:text-gray-300">
-              Are you sure you want to delete <strong>"{deletingChannel}"</strong>?
+              Are you sure you want to delete <strong>&quot;{deletingChannel}&quot;</strong>?
               This action cannot be undone.
             </p>
             <div className="flex justify-end gap-2">

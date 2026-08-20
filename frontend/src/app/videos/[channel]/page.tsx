@@ -7,8 +7,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { listVideos, summarizeVideos, listActiveTasks } from "@/lib/api";
-import type { Video, TaskInfo } from "@/lib/api";
+import Image from "next/image";
+import { listVideos, summarizeVideos, getTaskStatus } from "@/lib/api";
+import type { Video } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -42,13 +43,6 @@ function TranscriptIcon({ className }: { className?: string }) {
   );
 }
 
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Toast
@@ -128,9 +122,11 @@ function VideoRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
-          <img
+          <Image
             src={`https://img.youtube.com/vi/${video.video_id}/mqdefault.jpg`}
             alt=""
+            width={320}
+            height={180}
             className="w-16 h-9 rounded object-cover flex-shrink-0"
             loading="lazy"
             onError={(e) => {
@@ -202,7 +198,7 @@ export default function VideosPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [summarizing, setSummarizing] = useState(false);
-  const [taskStatus, setTaskStatus] = useState<{ status: string; processed: number; total: number } | null>(null);
+  const [summarizeTaskId, setSummarizeTaskId] = useState<string | null>(null);
   const { toasts, show: showToast } = useToast();
 
   const pageSize = 50;
@@ -227,19 +223,18 @@ export default function VideosPage() {
   }, [channelName, page, pageSize, sortKey, sortDir, filter]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-time data fetch; state updates happen inside the async load callback
     loadVideos();
   }, [loadVideos]);
 
-  // Poll task status if summarizing
+  // Poll the specific summarize task until it reaches a terminal state.
   useEffect(() => {
-    if (!summarizing) return;
+    if (!summarizing || !summarizeTaskId) return;
     const interval = setInterval(async () => {
       try {
-        const tasks = await listActiveTasks();
-        const active = tasks.filter((t) => t.status === "in_progress" || t.status === "pending");
-        if (active.length === 0) {
+        const status = await getTaskStatus(summarizeTaskId);
+        if (status.status === "completed" || status.status === "failed") {
           setSummarizing(false);
-          setTaskStatus(null);
           loadVideos();
         }
       } catch {
@@ -247,7 +242,7 @@ export default function VideosPage() {
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [summarizing, loadVideos]);
+  }, [summarizing, summarizeTaskId, loadVideos]);
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -278,7 +273,7 @@ export default function VideosPage() {
       if (res.task_id) {
         showToast(`Summarization started. Task: ${res.task_id}`, "success");
         setSelected(new Set());
-        setTaskStatus({ status: "in_progress", processed: 0, total: ids.length });
+        setSummarizeTaskId(res.task_id);
       } else {
         showToast(res.message || "Summarization failed", "error");
         setSummarizing(false);

@@ -4,6 +4,7 @@
  */
 
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,32 +25,32 @@ export default function RootLayout({
           <div className="max-w-7xl mx-auto px-4">
             <div className="flex items-center justify-between h-16">
               {/* Logo */}
-              <a href="/" className="flex items-center gap-2">
+              <Link href="/" className="flex items-center gap-2">
                 <span className="text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
                   SummarizeMe
                 </span>
-              </a>
+              </Link>
 
               {/* Nav links */}
               <div className="hidden sm:flex items-center gap-1">
-                <a
+                <Link
                   href="/"
                   className="px-3 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-blue-500 transition-colors"
                 >
                   Home
-                </a>
-                <a
+                </Link>
+                <Link
                   href="/status"
                   className="px-3 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-blue-500 transition-colors"
                 >
                   Status
-                </a>
-                <a
+                </Link>
+                <Link
                   href="/admin"
                   className="px-3 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-blue-500 transition-colors"
                 >
                   Admin
-                </a>
+                </Link>
               </div>
 
               {/* Mobile menu button */}
@@ -58,24 +59,24 @@ export default function RootLayout({
                   Menu
                 </summary>
                 <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-2 min-w-[120px] z-50">
-                  <a
+                  <Link
                     href="/"
                     className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
                     Home
-                  </a>
-                  <a
+                  </Link>
+                  <Link
                     href="/status"
                     className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
                     Status
-                  </a>
-                  <a
+                  </Link>
+                  <Link
                     href="/admin"
                     className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
                     Admin
-                  </a>
+                  </Link>
                 </div>
               </details>
             </div>

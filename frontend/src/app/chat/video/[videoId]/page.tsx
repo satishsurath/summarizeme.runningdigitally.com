@@ -7,6 +7,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { chatVideoStream } from "@/lib/api";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { ThinkingBlock } from "@/components/ThinkingBlock";
@@ -83,13 +84,15 @@ export default function ChatVideoPage() {
   const params = useParams();
   const videoId = params.videoId as string;
 
+  // Seed message uses empty times; the real timestamp is stamped client-side
+  // in the mount effect below to avoid an SSR/hydration mismatch.
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 0,
       role: "assistant",
       content: "Hello! I can answer questions about this video. What would you like to know?",
-      timestamp: new Date().toISOString(),
-      formattedTime: formatTime(new Date().toISOString()),
+      timestamp: "",
+      formattedTime: "",
     },
   ]);
   const [input, setInput] = useState("");
@@ -103,6 +106,17 @@ export default function ChatVideoPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingMsgId]);
+
+  // Stamp the seed message with a client-side time after mount.
+  useEffect(() => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === 0 && !m.timestamp
+          ? { ...m, timestamp: new Date().toISOString(), formattedTime: formatTime(new Date().toISOString()) }
+          : m,
+      ),
+    );
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,12 +206,12 @@ export default function ChatVideoPage() {
           <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
             Chat: {videoId}
           </h1>
-          <a
+          <Link
             href="/"
             className="text-sm text-gray-500 dark:text-gray-400 hover:text-blue-500 transition-colors"
           >
             ← Back
-          </a>
+          </Link>
         </div>
         <div className="flex items-center gap-3 mt-2">
           <select

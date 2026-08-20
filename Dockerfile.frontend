@@ -11,8 +11,9 @@ RUN npm ci
 COPY frontend/ ./
 
 # Build
-ARG NEXT_API_URL=http://localhost:8000
-ARG NEXT_PUBLIC_FLASK_URL=http://localhost:5001
+# Default matches the in-container Flask address used by docker-compose;
+# override via build arg / runtime env for other topologies.
+ARG NEXT_API_URL=http://app:5000
 ENV NEXT_API_URL=${NEXT_API_URL}
 ENV NEXT_PUBLIC_FLASK_URL=${NEXT_PUBLIC_FLASK_URL}
 RUN npm run build

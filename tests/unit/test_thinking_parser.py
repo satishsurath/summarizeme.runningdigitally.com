@@ -89,3 +89,34 @@ def test_separate_thinking_and_answer_no_thinking():
     thinking, answer = separate_thinking_and_answer(raw_text)
     assert thinking is None
     assert answer == raw_text
+
+
+def test_separate_thinking_and_answer_empty_input():
+    """Empty input returns None thinking and empty answer."""
+    thinking, answer = separate_thinking_and_answer("")
+    assert thinking is None
+    assert answer == ""
+
+
+def test_separate_thinking_and_answer_unclosed_think_tag():
+    """Unclosed think tag (opening tag present, closing tag cut off by max_tokens) treats the remainder as thinking."""
+    raw_text = "\u003cthink\u003e\nAnalyze input...\nCheck context..."
+    thinking, answer = separate_thinking_and_answer(raw_text)
+    assert thinking is not None
+    assert "Analyze input..." in thinking
+    assert answer == ""
+
+
+def test_separate_thinking_and_answer_double_newline_fallback():
+    """Prefix-style thinking with no transition marker falls back to the double-newline split."""
+    raw_text = (
+        "Thinking Process:\n"
+        "Step one: review the transcript.\n"
+        "Step two: check the summary.\n"
+        "\n"
+        "This video explains the architecture in detail."
+    )
+    thinking, answer = separate_thinking_and_answer(raw_text)
+    assert thinking is not None
+    assert "Step two" in thinking
+    assert answer == "This video explains the architecture in detail."

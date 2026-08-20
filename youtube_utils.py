@@ -65,6 +65,11 @@ def download_channel_transcripts(channel_url, task_store, task_id):
         new_count = 0
 
         for i, video in enumerate(videos):
+            if not isinstance(video, dict):
+                logger.error(f"Skipping malformed video entry at index {i}: {video!r}")
+                errors.append(f"Malformed entry at index {i}")
+                processed_count += 1
+                continue
             try:
                 video_id = video.get("video_id")
                 video_title = video.get("title") or "Untitled (no title)"

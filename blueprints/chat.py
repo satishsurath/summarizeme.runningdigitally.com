@@ -498,10 +498,11 @@ def api_chat_channel_stream(channel_name):
         sys.stdout.flush()
 
         if not chunk_rows:
-            yield (
-                'event: done\ndata: {"answer":"No relevant content found for this channel '
-                "and data type. Try selecting 'Transcript' or generate summaries first.\"}\n\n"
+            no_content = (
+                "No relevant content found for this channel and data type. "
+                "Try selecting 'Transcript' or generate summaries first."
             )
+            yield f"event: done\ndata: {json.dumps({'answer': no_content, 'done': True})}\n\n"
             return
 
         try:
@@ -633,10 +634,11 @@ def api_chat_video_stream(video_id):
 
         has_context = bool(chunk_rows) or bool(full_transcript)
         if not has_context:
-            yield (
-                'event: done\ndata: {"answer":"No relevant content found for this video '
-                "and data type. Try selecting 'Transcript' or generate summaries first.\"}\n\n"
+            no_content = (
+                "No relevant content found for this video and data type. "
+                "Try selecting 'Transcript' or generate summaries first."
             )
+            yield f"event: done\ndata: {json.dumps({'answer': no_content, 'done': True})}\n\n"
             return
 
         try:

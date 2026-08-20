@@ -7,6 +7,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { getTranscript } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
@@ -57,46 +58,44 @@ export default function TranscriptPage() {
   useEffect(() => {
     getTranscript(videoId)
       .then((res) => {
-        if (res.status === "ok" && res.data) {
-          setTitle(res.data.title);
-          setTranscript(res.data.transcript);
+        if (res.status === "ok") {
+          setTitle(res.title);
+          setTranscript(res.transcript);
         }
       })
       .catch(() => { /* silent */ })
       .finally(() => setLoading(false));
   }, [videoId]);
 
+  // The backend only provides transcript_no_ts (no timing data), so segments
+  // are plain text chunks used for search — no timestamps are shown or exported.
   const segments = useMemo(() => {
     if (!transcript) return [];
-    const chunks: { time: string; text: string }[] = [];
+    const chunks: string[] = [];
     const maxChunkSize = 3000;
     let offset = 0;
-    let chunkIndex = 0;
     while (offset < transcript.length) {
       const end = Math.min(offset + maxChunkSize, transcript.length);
       let breakPoint = transcript.lastIndexOf(". ", end);
       if (breakPoint < offset) breakPoint = end;
       else breakPoint += 2;
       const text = transcript.slice(offset, breakPoint).trim();
-      if (text) {
-        chunks.push({ time: `${chunkIndex * 4}:00`, text });
-        chunkIndex++;
-      }
+      if (text) chunks.push(text);
       offset = breakPoint;
     }
     return chunks;
   }, [transcript]);
 
+
   const filtered = useMemo(() => {
     if (!searchQuery.trim()) return segments;
     const q = searchQuery.toLowerCase();
-    return segments.filter((s) => s.text.toLowerCase().includes(q));
+    return segments.filter((s) => s.toLowerCase().includes(q));
   }, [searchQuery, segments]);
 
   const handleCopy = async () => {
-    const text = segments.map((s) => `[${s.time}] ${s.text}`).join("\n");
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(transcript);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -105,8 +104,7 @@ export default function TranscriptPage() {
   };
 
   const handleDownload = () => {
-    const text = segments.map((s) => `[${s.time}] ${s.text}`).join("\n");
-    const blob = new Blob([text], { type: "text/plain" });
+    const blob = new Blob([transcript], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -127,12 +125,12 @@ export default function TranscriptPage() {
     <div className="max-w-4xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <a
+        <Link
           href="/"
           className="text-sm text-gray-500 dark:text-gray-400 hover:text-blue-500 transition-colors"
         >
           ← Back to Home
-        </a>
+        </Link>
         <div className="flex items-center gap-2">
           <button
             onClick={handleCopy}
@@ -185,14 +183,11 @@ export default function TranscriptPage() {
       {/* Segments */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg divide-y divide-gray-200 dark:divide-gray-700">
         {filtered.map((segment, index) => (
-          <div key={index} className="flex gap-4 px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-            <span className="text-sm font-mono text-blue-500 dark:text-blue-400 shrink-0 w-12 text-right cursor-pointer hover:text-blue-600">
-              {segment.time}
-            </span>
+          <div key={index} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
             <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
               {searchQuery ? (
                 <span>
-                  {segment.text.split(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")).map((part, i) =>
+                  {segment.split(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")).map((part, i) =>
                     part.toLowerCase() === searchQuery.toLowerCase() ? (
                       <mark key={i} className="bg-yellow-200 dark:bg-yellow-700 rounded px-0.5">{part}</mark>
                     ) : (
@@ -201,7 +196,7 @@ export default function TranscriptPage() {
                   )}
                 </span>
               ) : (
-                segment.text
+                segment
               )}
             </p>
           </div>

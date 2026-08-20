@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 
 Base = declarative_base()
@@ -30,7 +30,7 @@ class VideoFolder(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     folder_name: Mapped[str | None] = mapped_column(String(255))
     original_playlist_id: Mapped[str | None] = mapped_column(String(255))
-    content_type: Mapped[str] = mapped_column(String(20), default="playlist")
+    content_type: Mapped[str] = mapped_column(String(20), default="playlist", server_default="playlist")
     video_id: Mapped[str | None] = mapped_column(String(50), ForeignKey("videos.video_id"))
     last_modified: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=lambda: datetime.datetime.now(datetime.UTC)
@@ -41,6 +41,7 @@ class VideoFolder(Base):
 
 class SummariesV2(Base):
     __tablename__ = "summaries_v2"
+    __table_args__ = (UniqueConstraint("video_id", "model_name", name="uq_summaries_v2_video_model"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     video_id: Mapped[str | None] = mapped_column(String(50), ForeignKey("videos.video_id"))
     video_title: Mapped[str | None] = mapped_column(String(512))

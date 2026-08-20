@@ -19,7 +19,7 @@ External research and Nomic Embed v1.5 specification guidelines establish two cr
    - In [`blueprints/chat.py`](../../blueprints/chat.py), all user query embedding requests pass `is_query=True` (automatically prepending `search_query: `).
 
 2. **Sentence-Aware Overlapping Chunking:**
-   - Refine `split_into_chunks()` in [`run_vectorizers.py`](../../run_vectorizers.py) to target ~1,500 characters (~300–500 words / ~450–600 tokens) with a 300-character sentence-boundary overlap window.
+   - [`run_vectorizers.py`](../../run_vectorizers.py) chunks transcripts at 1,000 characters with a 200-character sentence-boundary overlap, and summary columns at 2,000 characters with the same 200-character overlap.
    - Ensures vector chunks maintain complete grammatical sentences and contextual coherence across chunk boundaries.
 
 3. **Contextual Metadata Headers:**

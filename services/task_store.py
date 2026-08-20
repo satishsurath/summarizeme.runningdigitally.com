@@ -85,7 +85,7 @@ class TaskStore:
     # TTL for completed/failed tasks (24 hours)
     _COMPLETED_TTL = 86400
 
-    def __init__(self, redis_client: redis.Redis | None = None):
+    def __init__(self, redis_client: redis.Redis | _InMemoryTaskStore | None = None):
         if redis_client is not None:
             self._client = redis_client
         else:
@@ -97,13 +97,18 @@ class TaskStore:
                 self._client = redis.from_url(redis_url, decode_responses=True)
                 self._client.ping()
                 logger.info("TaskStore connected to Redis at %s", redis_url)
-            except (redis.ConnectionError, redis.TimeoutError, Exception) as e:
+            except Exception as e:
                 logger.warning(
                     "Redis unavailable at %s (%s); falling back to thread-safe in-memory task store",
                     redis_url,
                     e,
                 )
                 self._client = _InMemoryTaskStore()
+
+    @classmethod
+    def in_memory(cls) -> TaskStore:
+        """Create a TaskStore backed by the in-memory store (used by tests)."""
+        return cls(redis_client=_InMemoryTaskStore())
 
     # ------------------------------------------------------------------
     # Core operations
@@ -253,36 +258,6 @@ class TaskStore:
         """Return count of failed tasks."""
         val = self._client.scard(self._FAILED_SET)
         return int(val) if val else 0
-
-    # ------------------------------------------------------------------
-    # Legacy compatibility: simulate the old dict-based API
-    # ------------------------------------------------------------------
-
-    def __setitem__(self, task_id: str, data: dict) -> None:
-        """Set a task like a dict: store[task_id] = {...}."""
-        task = TaskInfo.from_dict(data)
-        self._save_task(task)
-        self._client.sadd(self._ACTIVE_SET, task_id)
-
-    def __getitem__(self, task_id: str) -> dict:
-        """Get a task like a dict: store[task_id]."""
-        task = self.get_task(task_id)
-        if task is None:
-            raise KeyError(task_id)
-        return task.to_dict()
-
-    def __delitem__(self, task_id: str) -> None:
-        """Delete a task like a dict: del store[task_id]."""
-        self.delete_task(task_id)
-
-    def __contains__(self, task_id: str) -> bool:
-        """Check if a task exists: task_id in store."""
-        return self.get_task(task_id) is not None
-
-    def get_all_statuses(self) -> dict:
-        """Return all tasks as a dict of {task_id: dict} for legacy compatibility."""
-        tasks = self.list_tasks()
-        return {t.task_id: t.to_dict() for t in tasks}
 
     def _save_task(self, task: TaskInfo) -> None:
         """Persist a task to Redis."""
