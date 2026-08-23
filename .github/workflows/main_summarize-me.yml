@@ -1,8 +1,11 @@
+# LEGACY — superseded by the docker-compose.prod.yml production stack.
+# Auto-deploy on push is DISABLED: this only runs on manual dispatch, and it
+# is retained for reference only. The deployment runbook
+# (docs/deployment-runbook.md) is the current delivery path.
 name: CI-CD
 
 on:
-  push:
-    branches: [ "main" ]  # or your production branch
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -36,6 +39,6 @@ jobs:
           # Run new container
           docker run -d --name summarizeme.runningdigitally.com \
             --restart always \
-            --env-file=/home/<operator>/.env \
+            --env-file=./.env \
             -p 8000:8000 \
             ghcr.io/${{ github.repository }}:latest

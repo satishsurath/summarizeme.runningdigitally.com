@@ -36,9 +36,9 @@ services:
       - "5001:5000"
     environment:
       DATABASE_URL: postgresql://summarizeme:summarizeme_pass@db:5432/summarizeme
-      VLLM_EMBED_HOST: <vllm-host>
+      VLLM_EMBED_HOST: ${VLLM_EMBED_HOST:?set VLLM_EMBED_HOST in .env}
       VLLM_EMBED_PORT: "8001"
-      VLLM_GEN_HOST: <vllm-host>
+      VLLM_GEN_HOST: ${VLLM_GEN_HOST:?set VLLM_GEN_HOST in .env}
       VLLM_GEN_PORT: "8000"
       REDIS_URL: redis://redis:6379/0
       FLASK_ENV: development
