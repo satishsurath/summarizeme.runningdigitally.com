@@ -1,14 +1,32 @@
 # Production Docker Compose for SummarizeMe
 #
+# Target: a LAN-only Docker host (no public routes, no Cloudflare tunnel or
+# Access). vLLM generation/embedding endpoints are external to this stack.
+# Host-specific values (hostnames, IPs, secrets) belong in the local .env,
+# never in this file. See docs/deployment-runbook.md ("Production VM
+# deployment").
+#
+# Topology:
+#   browser -> frontend (Next.js, :3000)
+#            -> app (Flask/gunicorn, :8000)  [direct API + SSE]
+#   app     -> db (PostgreSQL 17 + pgvector, named volume "pgdata")
+#   app     -> redis (task store + rate limits, named volume "redis-data", AOF)
+#   app     -> external vLLM (gen :8000, embed :8001)
+#
 # Usage:
-#   docker compose -f docker-compose.prod.yml up -d
-#   docker compose -f docker-compose.prod.yml down
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml run --rm db-init   # bootstrap (idempotent; re-runnable)
+#   docker compose -f docker-compose.prod.yml down               # stops stack; volumes persist
 #
 # Prerequisites:
-#   - .env file with production secrets (see .env.example)
-#   - External PostgreSQL (TimescaleDB recommended)
-#   - External Redis
-#   - External vLLM endpoints (VLLM_GEN_HOST, VLLM_EMBED_HOST)
+#   - .env file next to this compose file (see .env.example)
+#   - vLLM endpoints reachable from this host
+#
+# Data persistence: "pgdata" and "redis-data" are named Docker volumes on the
+# host (survive restarts, container rebuilds, and "compose down" without -v).
+# NEVER run "compose down -v" on this stack — it deletes the database.
+
+name: summarizeme
 
 services:
   app:
@@ -19,14 +37,23 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - VLLM_EMBED_HOST=${VLLM_EMBED_HOST}
-      - VLLM_EMBED_PORT=${VLLM_EMBED_PORT}
       - VLLM_GEN_HOST=${VLLM_GEN_HOST}
-      - VLLM_GEN_PORT=${VLLM_GEN_PORT}
-      - REDIS_URL=${REDIS_URL}
-      - SECRET_KEY=${SECRET_KEY}
+      - VLLM_GEN_PORT=${VLLM_GEN_PORT:-8000}
+      - VLLM_GEN_API_KEY=${VLLM_GEN_API_KEY:-local-noauth}
+      - VLLM_GEN_MODEL=${VLLM_GEN_MODEL:-nemo-qwen3.6-35b-a3b-nvfp4}
+      - VLLM_EMBED_HOST=${VLLM_EMBED_HOST}
+      - VLLM_EMBED_PORT=${VLLM_EMBED_PORT:-8001}
+      - VLLM_EMBED_API_KEY=${VLLM_EMBED_API_KEY:-local-noauth}
+      - VLLM_EMBED_MODEL=${VLLM_EMBED_MODEL:-nemo-nomic-embed-text-v1.5}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-${FLASK_SECRET_KEY}}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
       - FLASK_ENV=production
       - DEV_AUTH_ENABLED=${DEV_AUTH_ENABLED:-false}
+      - BACKUP_DIR=/app/backups
+    volumes:
+      - backups:/app/backups
     depends_on:
       db:
         condition: service_healthy
@@ -54,13 +81,15 @@ services:
         max-file: "3"
 
   db:
-    image: timescale/timescaledb-ha:pg17
+    # Plain PostgreSQL 17 with pgvector (TimescaleDB not required by the app).
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-summarizeme}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-summarizeme_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_DB: ${POSTGRES_DB:-summarizeme}
     volumes:
-      - pgdata:/home/postgres/pgdata/data
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init-prod:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-summarizeme} -d ${POSTGRES_DB:-summarizeme}"]
       interval: 10s
@@ -107,8 +136,62 @@ services:
         max-size: "5m"
         max-file: "3"
 
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Server-side target for the /api/* proxy route (in-container address).
+        NEXT_API_URL: http://app:8000
+        # Browser-reachable API base URL, baked into the client bundle at build
+        # time. Direct to :8000 so SSE streaming avoids proxy buffering.
+        NEXT_PUBLIC_FLASK_URL: ${NEXT_PUBLIC_FLASK_URL:?NEXT_PUBLIC_FLASK_URL must be set in .env (browser-reachable API base URL)}
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_API_URL=http://app:8000
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: "512M"
+        reservations:
+          cpus: "0.1"
+          memory: "128M"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # One-shot bootstrap: applies schema migrations and creates the pgvector
+  # embedding tables (and backfills embeddings when run against a populated DB).
+  # Idempotent — safe to re-run after every deploy.
+  db-init:
+    profiles: ["init"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - VLLM_EMBED_HOST=${VLLM_EMBED_HOST}
+      - VLLM_EMBED_PORT=${VLLM_EMBED_PORT:-8001}
+      - VLLM_EMBED_API_KEY=${VLLM_EMBED_API_KEY:-local-noauth}
+      - VLLM_EMBED_MODEL=${VLLM_EMBED_MODEL:-nemo-nomic-embed-text-v1.5}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "alembic upgrade head && python run_vectorizers.py"]
+    restart: "no"
+
 volumes:
   pgdata:
     driver: local
   redis-data:
+    driver: local
+  backups:
     driver: local
