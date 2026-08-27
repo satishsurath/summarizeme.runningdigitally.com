@@ -56,10 +56,10 @@ This document tracks all active problem tickets, architectural backlog items, te
 - [x] **BKG-021** (`P0`): Update `blueprints/chat.py` with multi-turn history, typed SSE streaming, and interactive lease priority.
 
 ### Phase 6: Next.js Modern Frontend UX
-- [ ] **BKG-022** (`P0`): Implement 9-section summary navigation with sticky TOC and scroll-spy (`SummaryNavigation.tsx`).
-- [ ] **BKG-023** (`P0`): Implement `ChapterTimeline.tsx` and `EvidenceDrawer.tsx` linking to YouTube playback timestamps.
-- [ ] **BKG-024** (`P0`): Implement `ThinkingAccordion.tsx` (collapsed by default) and `ReasoningSelector.tsx`.
-- [ ] **BKG-025** (`P1`): Implement Admin Model Registry UI (`/admin/models`).
+- [x] **BKG-022** (`P0`): Implement 9-section summary navigation with sticky TOC and scroll-spy (`SummaryNavigation.tsx`).
+- [x] **BKG-023** (`P0`): Implement `ChapterTimeline.tsx` and `EvidenceDrawer.tsx` linking to YouTube playback timestamps.
+- [x] **BKG-024** (`P0`): Implement `ThinkingBlock.tsx` (collapsed by default with raw/formatted toggle) and `ReasoningSelector.tsx`.
+- [x] **BKG-025** (`P1`): Implement Admin Model Registry UI (`/admin/models/page.tsx` and `ModelRegistryAdmin.tsx`).
 
 ### Phase 7: Autoscaling, Evaluation, Redis Removal & Cutover
 - [ ] **BKG-026** (`P0`): Configure stage worker Compose services and scale-to-zero host systemd timer script (`scripts/scale_workers.sh`).
@@ -71,6 +71,6 @@ This document tracks all active problem tickets, architectural backlog items, te
 ## 3. Technical Debt & Cleanups
 
 - **DEBT-001** (`Low`): Remove SQLite in-memory mock fallback in production code once PostgreSQL pgvector test harness is unified in CI.
-- **DEBT-002** (`Medium`): Refactor frontend monolithic summary render into isolated, memoized sub-components.
+- [x] **DEBT-002** (`Medium`): Refactor frontend monolithic summary render into isolated, memoized sub-components.
 - **DEBT-003** (`High`): Clean up remaining references to `task_store` across legacy blueprints once worker migration is complete.
 - **DEBT-004** (`Low`): Consolidate duplicate prompt constants between `prompts.py` and `services/contracts.py`.
