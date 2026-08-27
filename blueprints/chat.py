@@ -278,6 +278,19 @@ def api_chat_channel(channel_name):
         model_name,
     )
 
+    valid_data_types = {
+        "automatic",
+        "all",
+        "summary",
+        "comprehensive_notes",
+        "concise_summary",
+        "key_topics",
+        "important_takeaways",
+        "transcript",
+    }
+    if data_type not in valid_data_types:
+        return jsonify({"answer": f"Invalid data_type: {data_type}"}), 400
+
     embeddings_view_map = {
         "comprehensive_notes": "public.summaries_v2_comprehensive_notes_embedding",
         "concise_summary": "public.summaries_v2_concise_summary_embedding",
@@ -285,9 +298,12 @@ def api_chat_channel(channel_name):
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
         "transcript": "public.videos_transcript_no_ts_embedding",
     }
-    selected_view = embeddings_view_map.get(data_type)
-    if selected_view not in chat_channel_sql_templates:
-        return jsonify({"answer": f"Invalid data_type: {data_type}"}), 400
+    selected_view = embeddings_view_map.get(
+        data_type,
+        "public.videos_transcript_no_ts_embedding"
+        if data_type == "transcript"
+        else "public.summaries_v2_comprehensive_notes_embedding",
+    )
 
     session = SessionLocal()
     final_answer = ""
@@ -379,6 +395,19 @@ def api_chat_video(video_id):
         model_name,
     )
 
+    valid_data_types = {
+        "automatic",
+        "all",
+        "summary",
+        "comprehensive_notes",
+        "concise_summary",
+        "key_topics",
+        "important_takeaways",
+        "transcript",
+    }
+    if data_type not in valid_data_types:
+        return jsonify({"answer": f"Invalid data_type: {data_type}"}), 400
+
     embeddings_table_map = {
         "comprehensive_notes": "public.summaries_v2_comprehensive_notes_embedding",
         "concise_summary": "public.summaries_v2_concise_summary_embedding",
@@ -386,9 +415,12 @@ def api_chat_video(video_id):
         "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
         "transcript": "public.videos_transcript_no_ts_embedding",
     }
-    selected_table = embeddings_table_map.get(data_type)
-    if selected_table not in chat_video_sql_templates:
-        return jsonify({"answer": f"Invalid data_type: {data_type}"}), 400
+    selected_table = embeddings_table_map.get(
+        data_type,
+        "public.videos_transcript_no_ts_embedding"
+        if data_type == "transcript"
+        else "public.summaries_v2_comprehensive_notes_embedding",
+    )
 
     session = SessionLocal()
     final_answer = ""
@@ -456,7 +488,7 @@ def api_chat_channel_stream(channel_name):
     """SSE streaming endpoint for chat-channel queries."""
     data = request.json or {}
     user_query = data.get("query", "").strip()
-    data_type = data.get("data_type", "comprehensive_notes")
+    data_type = data.get("data_type", "automatic")
     user_info = get_current_user()
     user_email = str(user_info[0]) if isinstance(user_info, tuple) and user_info[0] else "dev@localhost"
 
@@ -474,6 +506,9 @@ def api_chat_channel_stream(channel_name):
         return Response(stream_with_context(_err_chan_no_query()), content_type="text/event-stream", headers=headers)
 
     valid_data_types = {
+        "automatic",
+        "all",
+        "summary",
         "comprehensive_notes",
         "concise_summary",
         "key_topics",
@@ -515,7 +550,12 @@ def api_chat_channel_stream(channel_name):
                 "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
                 "transcript": "public.videos_transcript_no_ts_embedding",
             }
-            selected_view = embeddings_view_map.get(data_type)
+            selected_view = embeddings_view_map.get(
+                data_type,
+                "public.videos_transcript_no_ts_embedding"
+                if data_type == "transcript"
+                else "public.summaries_v2_comprehensive_notes_embedding",
+            )
             if selected_view and selected_view in chat_channel_sql_templates:
                 user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
                 if user_query_emb:
@@ -706,6 +746,23 @@ def api_chat_video_stream(video_id):
 
         return Response(stream_with_context(_err_vid_no_query()), content_type="text/event-stream", headers=headers)
 
+    valid_data_types = {
+        "automatic",
+        "all",
+        "summary",
+        "comprehensive_notes",
+        "concise_summary",
+        "key_topics",
+        "important_takeaways",
+        "transcript",
+    }
+    if data_type and data_type not in valid_data_types:
+
+        def _err_vid_invalid():
+            yield 'event: error\ndata: {"error":"Invalid data type."}\n\n'
+
+        return Response(stream_with_context(_err_vid_invalid()), content_type="text/event-stream", headers=headers)
+
     session = SessionLocal()
     chunk_rows = []
     retrieved_chunks = []
@@ -735,7 +792,12 @@ def api_chat_video_stream(video_id):
                 "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
                 "transcript": "public.videos_transcript_no_ts_embedding",
             }
-            selected_table = embeddings_table_map.get(data_type)
+            selected_table = embeddings_table_map.get(
+                data_type,
+                "public.videos_transcript_no_ts_embedding"
+                if data_type == "transcript"
+                else "public.summaries_v2_comprehensive_notes_embedding",
+            )
             if selected_table and selected_table in chat_video_sql_templates:
                 user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
                 if user_query_emb:
