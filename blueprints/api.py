@@ -25,6 +25,7 @@ from app_config import (
 )
 from db.models import SummariesV2, Video, VideoFolder
 from prompts import SYSTEM_PROMPT_SUMMARIZER
+from services.job_queue import JobQueue
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -58,9 +59,25 @@ def api_channel_start():
 def api_channel_status(task_id):
     """Returns the status of an ongoing channel download process."""
     task = task_store.get_task(task_id)
-    if not task:
-        return jsonify({"status": "error", "message": "Invalid task ID"}), 404
-    return jsonify(task.to_dict())
+    if task:
+        return jsonify(task.to_dict())
+
+    # Fallback / Pipeline adapter: check JobQueue
+    with SessionLocal() as session:
+        progress = JobQueue.get_job_progress(session, task_id)
+        if progress:
+            return jsonify(
+                {
+                    "task_id": progress["job_id"],
+                    "status": progress["status"],
+                    "processed": progress["completed_items"] + progress["failed_items"],
+                    "total": progress["total_items"],
+                    "errors": [],
+                    "stages": progress.get("stages", {}),
+                }
+            )
+
+    return jsonify({"status": "error", "message": "Invalid task ID"}), 404
 
 
 @api_bp.route("/videos/<channel_name>", methods=["GET"])
@@ -252,9 +269,25 @@ def api_summarize_v2():
 def api_summarize_v2_status(task_id):
     """Returns progress for the SummariesV2 generation task."""
     task = task_store.get_task(task_id)
-    if not task:
-        return jsonify({"status": "error", "message": "Invalid task ID"}), 404
-    return jsonify(task.to_dict())
+    if task:
+        return jsonify(task.to_dict())
+
+    # Fallback / Pipeline adapter: check JobQueue
+    with SessionLocal() as session:
+        progress = JobQueue.get_job_progress(session, task_id)
+        if progress:
+            return jsonify(
+                {
+                    "task_id": progress["job_id"],
+                    "status": progress["status"],
+                    "processed": progress["completed_items"] + progress["failed_items"],
+                    "total": progress["total_items"],
+                    "errors": [],
+                    "stages": progress.get("stages", {}),
+                }
+            )
+
+    return jsonify({"status": "error", "message": "Invalid task ID"}), 404
 
 
 @api_bp.route("/active-tasks", methods=["GET"])
