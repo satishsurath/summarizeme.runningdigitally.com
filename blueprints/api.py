@@ -26,6 +26,7 @@ from app_config import (
 from db.models import SummariesV2, Video, VideoFolder
 from prompts import SYSTEM_PROMPT_SUMMARIZER
 from services.job_queue import JobQueue
+from services.model_registry import ModelRegistryService
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -502,3 +503,47 @@ def api_vllm_models():
         except requests.exceptions.RequestException as e:
             logger.warning("Failed to list models from %s: %s", url, e)
     return jsonify({"models": models})
+
+
+@api_bp.route("/models", methods=["GET"])
+def api_models():
+    """Return active qualified models from ModelRegistryService."""
+    with SessionLocal() as session:
+        ModelRegistryService.bootstrap_from_env(session)
+        models = ModelRegistryService.list_available_models(session, endpoint_type="generation")
+        return jsonify({"models": models})
+
+
+@api_bp.route("/user/preference", methods=["GET", "POST"])
+@require_role(["admin", "member"])
+def api_user_preference():
+    """Get or update current user's preferred model and reasoning effort."""
+    from auth_utils import get_current_user
+
+    user_info = get_current_user()
+    user_email = user_info[0] if isinstance(user_info, tuple) and user_info[0] else "dev@localhost"
+    with SessionLocal() as session:
+        if request.method == "POST":
+            data = request.get_json() or {}
+            pref = ModelRegistryService.set_user_preference(
+                session=session,
+                user_id=str(user_email),
+                preferred_gen_model=data.get("model_name"),
+                preferred_reasoning_effort=data.get("reasoning_effort"),
+            )
+            return jsonify(
+                {
+                    "user_id": pref.user_id,
+                    "preferred_gen_model": pref.preferred_gen_model,
+                    "preferred_reasoning_effort": pref.preferred_reasoning_effort,
+                }
+            )
+        else:
+            model_name, effort = ModelRegistryService.resolve_user_model(session, str(user_email))
+            return jsonify(
+                {
+                    "user_id": str(user_email),
+                    "preferred_gen_model": model_name,
+                    "preferred_reasoning_effort": effort,
+                }
+            )

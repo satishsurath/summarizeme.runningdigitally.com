@@ -9,12 +9,12 @@ This document tracks all active problem tickets, architectural backlog items, te
 | Ticket ID | Title | Summary / Root Cause | Target Fix Phase | Severity | Status |
 |---|---|---|:---:|:---:|:---:|
 | **PT-001** | Summarization vLLM Reasoning | vLLM 404 + Qwen3.6 reasoning content parsed with heuristics instead of typed streaming events. | Phase 0 & 3 | High | **Resolved** |
-| **PT-002** | Chat Model Selector | Chat deprecated model selector not synchronized with backend active models; hardcoded options in UI. | Phase 5 & 6 | High | Open |
+| **PT-002** | Chat Model Selector | Chat deprecated model selector not synchronized with backend active models; hardcoded options in UI. | Phase 5 & 6 | High | **Resolved** |
 | **PT-003** | youtu.be URL Format | Single video download `youtu.be` format not consistently detected by legacy acquisition script. | Phase 2 | Medium | **Resolved** |
 | **PT-004** | DB Persistence on Rebuild | Docker rebuild previously risked data persistence issues if volumes were misconfigured. | Phase 1 & 7 | High | **Resolved** |
-| **PT-005** | Chat Embedding 404 | Chat RAG query failed when embedding service URL was not reachable on port 8001. | Phase 4 & 5 | High | In Progress |
+| **PT-005** | Chat Embedding 404 | Chat RAG query failed when embedding service URL was not reachable on port 8001. | Phase 4 & 5 | High | **Resolved** |
 | **PT-006** | Branch Protection & Status Checks | PR merged despite failed lint; missing branch protection gate in CI. | Phase 0 | Medium | **Resolved** |
-| **PT-007** | Chat Thinking Block Post-Stream | Chat thinking block dissolved into main answer post-stream due to markdown string concatenation. | Phase 3 & 6 | High | In Progress |
+| **PT-007** | Chat Thinking Block Post-Stream | Chat thinking block dissolved into main answer post-stream due to markdown string concatenation. | Phase 3 & 6 | High | **Resolved** |
 | **PT-008** | Model Identifier Drift | `app_config.py` defaults to `nemo-qwen3.6-35b` while Homelab runs `nemo-qwen3.8-27b-nvfp4`. | Phase 0 & 5 | High | **Resolved** |
 | **PT-009** | Daemon Thread Task Store | Background jobs run as daemon threads inside Gunicorn with Redis task store lacking atomic leases. | Phase 1 | Critical | **Resolved** |
 
@@ -50,10 +50,10 @@ This document tracks all active problem tickets, architectural backlog items, te
 - [x] **BKG-017** (`P1`): Implement dual-write bridge to update both `content_chunks` and legacy vector tables.
 
 ### Phase 5: Stateful Chat, Hybrid Retrieval & Model Registry
-- [ ] **BKG-018** (`P0`): Create Alembic migration for `conversations`, `conversation_messages`, and Model Registry tables.
-- [ ] **BKG-019** (`P0`): Implement `RetrievalService` with hybrid vector + FTS search, RRF fusion, source diversity, and parent expansion.
-- [ ] **BKG-020** (`P0`): Implement `ModelRegistryService` with `/v1/models` discovery, qualification test runner, and runtime pool enforcement.
-- [ ] **BKG-021** (`P0`): Update `blueprints/chat.py` with multi-turn history, typed SSE streaming, and interactive lease priority.
+- [x] **BKG-018** (`P0`): Create Alembic migration for `conversations`, `conversation_messages`, and Model Registry tables.
+- [x] **BKG-019** (`P0`): Implement `RetrievalService` with hybrid vector + FTS search, RRF fusion, source diversity, and parent expansion.
+- [x] **BKG-020** (`P0`): Implement `ModelRegistryService` with `/v1/models` discovery, qualification test runner, and runtime pool enforcement.
+- [x] **BKG-021** (`P0`): Update `blueprints/chat.py` with multi-turn history, typed SSE streaming, and interactive lease priority.
 
 ### Phase 6: Next.js Modern Frontend UX
 - [ ] **BKG-022** (`P0`): Implement 9-section summary navigation with sticky TOC and scroll-spy (`SummaryNavigation.tsx`).

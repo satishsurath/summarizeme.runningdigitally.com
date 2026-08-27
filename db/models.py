@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -303,3 +304,122 @@ class ContentChunk(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     video: Mapped[Video] = relationship("Video", back_populates="chunks")
+
+
+class Conversation(Base):
+    """Multi-turn conversation session scoped to channel, video, or global context."""
+
+    __tablename__ = "conversations"
+    __table_args__ = (
+        Index("ix_conversations_user_id", "user_id"),
+        Index("ix_conversations_scope", "scope_type", "scope_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)  # channel, video, global
+    scope_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    reasoning_effort: Mapped[str] = mapped_column(String(32), nullable=False, default="medium")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    messages: Mapped[list[ConversationMessage]] = relationship(
+        "ConversationMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ConversationMessage.sequence_index",
+        lazy="selectin",
+    )
+
+
+class ConversationMessage(Base):
+    """Individual message in a conversation thread with reasoning trace and cited sources."""
+
+    __tablename__ = "conversation_messages"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "sequence_index", name="uq_conversation_messages_conv_seq"),
+        Index("ix_conversation_messages_conv_id", "conversation_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    conversation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)  # user, assistant, system
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    reasoning_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    conversation: Mapped[Conversation] = relationship("Conversation", back_populates="messages")
+
+
+class AIEndpoint(Base):
+    """Hardware endpoint configuration for vLLM / SGLang generation or embedding services."""
+
+    __tablename__ = "ai_endpoints"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    endpoint_type: Mapped[str] = mapped_column(String(32), nullable=False)  # generation, embedding, rerank
+    base_url: Mapped[str] = mapped_column(String(255), nullable=False)
+    api_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    models: Mapped[list[AIModel]] = relationship("AIModel", back_populates="endpoint", cascade="all, delete-orphan")
+
+
+class AIModel(Base):
+    """Registered AI model available on a specific serving endpoint."""
+
+    __tablename__ = "ai_models"
+    __table_args__ = (
+        UniqueConstraint("endpoint_id", "model_id", name="uq_ai_models_endpoint_model"),
+        Index("ix_ai_models_endpoint_id", "endpoint_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    endpoint_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("ai_endpoints.id", ondelete="CASCADE"), nullable=False
+    )
+    model_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    family: Mapped[str] = mapped_column(String(64), nullable=False)
+    context_window: Mapped[int] = mapped_column(Integer, nullable=False, default=32768)
+    qualification_status: Mapped[str] = mapped_column(String(32), nullable=False, default="passed")
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    endpoint: Mapped[AIEndpoint] = relationship("AIEndpoint", back_populates="models")
+
+
+class AIRuntimePool(Base):
+    """Runtime concurrency and interactive lease allocation pool."""
+
+    __tablename__ = "ai_runtime_pools"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    max_in_flight: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    interactive_reserve: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserAIPreference(Base):
+    """Per-user AI model selection and reasoning effort preferences."""
+
+    __tablename__ = "user_ai_preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    preferred_gen_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    preferred_reasoning_effort: Mapped[str] = mapped_column(String(32), nullable=False, default="medium")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

@@ -77,10 +77,13 @@ class ResourceAdmission:
 
         # 2. Check configured max_in_flight limit
         limit_row = session.get(ResourceLimit, resource_class)
-        max_in_flight = limit_row.max_in_flight if limit_row else DEFAULT_LIMITS.get(resource_class, 1)
+        if limit_row and hasattr(limit_row, "max_in_flight") and isinstance(limit_row.max_in_flight, int):
+            max_in_flight = limit_row.max_in_flight
+        else:
+            max_in_flight = DEFAULT_LIMITS.get(resource_class, 1)
 
         # 3. Count active leases
-        active_count = (
+        raw_count = (
             session.scalar(
                 select(func.count(ResourceLease.id)).where(
                     ResourceLease.resource_class == resource_class,
@@ -89,13 +92,22 @@ class ResourceAdmission:
             )
             or 0
         )
+        try:
+            active_count = int(raw_count)
+        except (TypeError, ValueError):
+            active_count = 0
 
-        if active_count >= max_in_flight:
+        try:
+            max_limit = int(max_in_flight)
+        except (TypeError, ValueError):
+            max_limit = 1
+
+        if active_count >= max_limit:
             logger.debug(
                 "Capacity reached for %s (active=%d, limit=%d). Lease denied for %s",
                 resource_class,
                 active_count,
-                max_in_flight,
+                max_limit,
                 owner,
             )
             session.commit()

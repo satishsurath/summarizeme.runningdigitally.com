@@ -2,6 +2,7 @@
 
 import json
 import re
+import uuid
 
 import requests
 from flask import (
@@ -13,6 +14,7 @@ from flask import (
     stream_with_context,
 )
 from markupsafe import escape as _html_escape
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text
 
@@ -28,8 +30,17 @@ from app_config import (
     vllm_embed_chunk,
     vllm_generate_chunk,
 )
-from db.models import Video, VideoFolder
+from auth_utils import get_current_user
+from db.models import (
+    Conversation,
+    Video,
+    VideoFolder,
+    utcnow,
+)
 from prompts import SYSTEM_PROMPT_RAG, build_chat_prompt
+from services.model_registry import ModelRegistryService
+from services.resource_admission import ResourceAdmission
+from services.retrieval_service import RetrievalService
 
 chat_bp = Blueprint("chat", __name__)
 
@@ -429,7 +440,9 @@ def api_chat_channel_stream(channel_name):
     data = request.json or {}
     user_query = data.get("query", "").strip()
     data_type = data.get("data_type", "comprehensive_notes")
-    model_name = data.get("model_name") or data.get("model") or DEFAULT_GEN_MODEL
+    user_info = get_current_user()
+    user_email = str(user_info[0]) if isinstance(user_info, tuple) and user_info[0] else "dev@localhost"
+
     headers = {
         "Cache-Control": "no-cache, no-transform",
         "X-Accel-Buffering": "no",
@@ -443,15 +456,14 @@ def api_chat_channel_stream(channel_name):
 
         return Response(stream_with_context(_err_chan_no_query()), content_type="text/event-stream", headers=headers)
 
-    embeddings_view_map = {
-        "comprehensive_notes": "public.summaries_v2_comprehensive_notes_embedding",
-        "concise_summary": "public.summaries_v2_concise_summary_embedding",
-        "key_topics": "public.summaries_v2_key_topics_embedding",
-        "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
-        "transcript": "public.videos_transcript_no_ts_embedding",
+    valid_data_types = {
+        "comprehensive_notes",
+        "concise_summary",
+        "key_topics",
+        "important_takeaways",
+        "transcript",
     }
-    selected_view = embeddings_view_map.get(data_type)
-    if selected_view not in chat_channel_sql_templates:
+    if data_type and data_type not in valid_data_types:
 
         def _err_chan_invalid():
             yield 'event: error\ndata: {"error":"Invalid data type."}\n\n'
@@ -460,24 +472,40 @@ def api_chat_channel_stream(channel_name):
 
     session = SessionLocal()
     try:
-        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
-        if not user_query_emb:
+        model_name, _ = ModelRegistryService.resolve_user_model(
+            session=session,
+            user_id=user_email,
+            requested_model=data.get("model_name") or data.get("model"),
+            requested_effort=data.get("reasoning_effort"),
+        )
 
-            def _err_chan_no_emb():
-                yield 'event: error\ndata: {"error":"Failed to get embedding for user query."}\n\n'
+        # 1. Try unified hybrid retrieval first
+        retrieved_chunks = RetrievalService.retrieve_context(
+            session=session,
+            query=user_query,
+            scope_type="channel",
+            scope_id=channel_name,
+            top_k=10,
+        )
 
-            return Response(stream_with_context(_err_chan_no_emb()), content_type="text/event-stream", headers=headers)
-
-        raw_sql = chat_channel_sql_templates[selected_view] % {"view": selected_view}
-        emb_literal = "ARRAY[" + ",".join(str(float(x)) for x in user_query_emb) + "]::vector"
-        raw_sql = raw_sql.replace(":q_emb", emb_literal)
-        chunk_rows = session.execute(text(raw_sql), {"chan": channel_name}).fetchall()
-
-        if not chunk_rows and selected_view != "public.videos_transcript_no_ts_embedding":
-            tmpl = chat_channel_sql_templates["public.videos_transcript_no_ts_embedding"]
-            raw_sql = tmpl % {"view": "public.videos_transcript_no_ts_embedding"}
-            raw_sql = raw_sql.replace(":q_emb", emb_literal)
-            chunk_rows = session.execute(text(raw_sql), {"chan": channel_name}).fetchall()
+        # Fallback to legacy SQL template if no unified chunks found yet
+        chunk_rows = []
+        if not retrieved_chunks:
+            embeddings_view_map = {
+                "comprehensive_notes": "public.summaries_v2_comprehensive_notes_embedding",
+                "concise_summary": "public.summaries_v2_concise_summary_embedding",
+                "key_topics": "public.summaries_v2_key_topics_embedding",
+                "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
+                "transcript": "public.videos_transcript_no_ts_embedding",
+            }
+            selected_view = embeddings_view_map.get(data_type)
+            if selected_view and selected_view in chat_channel_sql_templates:
+                user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
+                if user_query_emb:
+                    raw_sql = chat_channel_sql_templates[selected_view] % {"view": selected_view}
+                    emb_literal = "ARRAY[" + ",".join(str(float(x)) for x in user_query_emb) + "]::vector"
+                    raw_sql = raw_sql.replace(":q_emb", emb_literal)
+                    chunk_rows = session.execute(text(raw_sql), {"chan": channel_name}).fetchall()
     except Exception as e:
         err_msg = str(e)
         logger.exception("DB query error in chat-channel stream:")
@@ -497,7 +525,8 @@ def api_chat_channel_stream(channel_name):
         yield 'event: loading\ndata: {"status":"processing"}\n\n'
         sys.stdout.flush()
 
-        if not chunk_rows:
+        has_content = bool(retrieved_chunks) or bool(chunk_rows)
+        if not has_content:
             no_content = (
                 "No relevant content found for this channel and data type. "
                 "Try selecting 'Transcript' or generate summaries first."
@@ -505,15 +534,29 @@ def api_chat_channel_stream(channel_name):
             yield f"event: done\ndata: {json.dumps({'answer': no_content, 'done': True})}\n\n"
             return
 
+        gen_session = SessionLocal()
+        lease_id = ResourceAdmission.acquire_lease(
+            session=gen_session,
+            resource_class="generation_interactive",
+            owner=f"chat-{user_email}",
+            lease_seconds=60,
+        )
+
         try:
             context_pieces = []
             unique_videos = {}
-            for row in chunk_rows:
-                chunk_text = row[0]
-                chunk_vid_id = row[1]
-                chunk_vid_title = row[2]
-                context_pieces.append(f"Chunk (similarity={row[3]:.4f}): {chunk_text}")
-                unique_videos[chunk_vid_id] = chunk_vid_title
+
+            if retrieved_chunks:
+                for c in retrieved_chunks:
+                    context_pieces.append(f"Retrieved Chunk: {c['text']}")
+                    unique_videos[c["video_id"]] = c["video_id"]
+            else:
+                for row in chunk_rows:
+                    chunk_text = row[0]
+                    chunk_vid_id = row[1]
+                    chunk_vid_title = row[2]
+                    context_pieces.append(f"Chunk (similarity={row[3]:.4f}): {chunk_text}")
+                    unique_videos[chunk_vid_id] = chunk_vid_title
 
             context_for_generation = "\n\n".join(context_pieces)
             prompt_str = build_chat_prompt(context_for_generation, user_query)
@@ -537,6 +580,10 @@ def api_chat_channel_stream(channel_name):
         except Exception as e:
             logger.exception("Error during chat-channel stream generation:")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            if lease_id:
+                ResourceAdmission.release_lease(session=gen_session, lease_id=lease_id, owner=f"chat-{user_email}")
+            gen_session.close()
 
     return Response(
         stream_with_context(generate()),
@@ -550,12 +597,17 @@ def api_chat_channel_stream(channel_name):
 def api_chat_video_stream(video_id):
     """SSE streaming endpoint for chat-video queries."""
     data = request.json or {}
-    user_query = data.get("query", "")
+    user_query = data.get("query", "").strip()
+    data_type = data.get("data_type", "comprehensive_notes")
+    user_info = get_current_user()
+    user_email = str(user_info[0]) if isinstance(user_info, tuple) and user_info[0] else "dev@localhost"
+
     headers = {
         "Cache-Control": "no-cache, no-transform",
         "X-Accel-Buffering": "no",
         "Connection": "keep-alive",
     }
+
     if not user_query:
 
         def _err_vid_no_query():
@@ -563,20 +615,14 @@ def api_chat_video_stream(video_id):
 
         return Response(stream_with_context(_err_vid_no_query()), content_type="text/event-stream", headers=headers)
 
-    data_type = data.get("data_type", "comprehensive_notes")
-    model_name = data.get("model_name") or data.get("model") or DEFAULT_GEN_MODEL
-
-    logger.info("Chat-video stream query for video_id=%s, user_query=%r", video_id, user_query)
-
-    embeddings_table_map = {
-        "comprehensive_notes": "public.summaries_v2_comprehensive_notes_embedding",
-        "concise_summary": "public.summaries_v2_concise_summary_embedding",
-        "key_topics": "public.summaries_v2_key_topics_embedding",
-        "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
-        "transcript": "public.videos_transcript_no_ts_embedding",
+    valid_data_types = {
+        "comprehensive_notes",
+        "concise_summary",
+        "key_topics",
+        "important_takeaways",
+        "transcript",
     }
-    selected_table = embeddings_table_map.get(data_type)
-    if selected_table not in chat_video_sql_templates:
+    if data_type and data_type not in valid_data_types:
 
         def _err_vid_invalid():
             yield 'event: error\ndata: {"error":"Invalid data type."}\n\n'
@@ -585,29 +631,43 @@ def api_chat_video_stream(video_id):
 
     session = SessionLocal()
     chunk_rows = []
+    retrieved_chunks = []
     full_transcript = ""
     video_title = str(video_id)
     try:
-        user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
-        if not user_query_emb:
+        model_name, _ = ModelRegistryService.resolve_user_model(
+            session=session,
+            user_id=user_email,
+            requested_model=data.get("model_name") or data.get("model"),
+            requested_effort=data.get("reasoning_effort"),
+        )
 
-            def _err_vid_no_emb():
-                yield 'event: error\ndata: {"error":"Failed to get embedding for user query."}\n\n'
+        retrieved_chunks = RetrievalService.retrieve_context(
+            session=session,
+            query=user_query,
+            scope_type="video",
+            scope_id=video_id,
+            top_k=10,
+        )
 
-            return Response(stream_with_context(_err_vid_no_emb()), content_type="text/event-stream", headers=headers)
+        if not retrieved_chunks:
+            embeddings_table_map = {
+                "comprehensive_notes": "public.summaries_v2_comprehensive_notes_embedding",
+                "concise_summary": "public.summaries_v2_concise_summary_embedding",
+                "key_topics": "public.summaries_v2_key_topics_embedding",
+                "important_takeaways": "public.summaries_v2_important_takeaways_embedding",
+                "transcript": "public.videos_transcript_no_ts_embedding",
+            }
+            selected_table = embeddings_table_map.get(data_type)
+            if selected_table and selected_table in chat_video_sql_templates:
+                user_query_emb = vllm_embed_chunk(user_query, model_name=VLLM_EMBED_MODEL, is_query=True)
+                if user_query_emb:
+                    emb_literal = "ARRAY[" + ",".join(str(float(x)) for x in user_query_emb) + "]::vector"
+                    raw_sql = chat_video_sql_templates[selected_table] % {"view": selected_table}
+                    raw_sql = raw_sql.replace(":q_emb", emb_literal)
+                    chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
 
-        emb_literal = "ARRAY[" + ",".join(str(float(x)) for x in user_query_emb) + "]::vector"
-        raw_sql = chat_video_sql_templates[selected_table] % {"view": selected_table}
-        raw_sql = raw_sql.replace(":q_emb", emb_literal)
-        chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
-
-        if not chunk_rows and selected_table != "public.videos_transcript_no_ts_embedding":
-            tmpl = chat_video_sql_templates["public.videos_transcript_no_ts_embedding"]
-            raw_sql = tmpl % {"view": "public.videos_transcript_no_ts_embedding"}
-            raw_sql = raw_sql.replace(":q_emb", emb_literal)
-            chunk_rows = session.execute(text(raw_sql), {"vid": video_id}).fetchall()
-
-        # Retrieve full video transcript to leverage 256K long context window
+        # Retrieve full video transcript
         video_obj = session.query(Video).filter_by(video_id=video_id).first()
         if video_obj is not None:
             full_transcript = str(getattr(video_obj, "transcript_no_ts", "") or "")
@@ -628,11 +688,10 @@ def api_chat_video_stream(video_id):
 
         from summarizer_v2 import vllm_generate_stream
 
-        # Immediate SSE acknowledgment so the browser doesn't hang
         yield 'event: loading\ndata: {"status":"processing"}\n\n'
         sys.stdout.flush()
 
-        has_context = bool(chunk_rows) or bool(full_transcript)
+        has_context = bool(retrieved_chunks) or bool(chunk_rows) or bool(full_transcript)
         if not has_context:
             no_content = (
                 "No relevant content found for this video and data type. "
@@ -641,10 +700,26 @@ def api_chat_video_stream(video_id):
             yield f"event: done\ndata: {json.dumps({'answer': no_content, 'done': True})}\n\n"
             return
 
+        gen_session = SessionLocal()
+        lease_id = ResourceAdmission.acquire_lease(
+            session=gen_session,
+            resource_class="generation_interactive",
+            owner=f"chat-{user_email}",
+            lease_seconds=60,
+        )
+
         try:
-            context_pieces = [f"Retrieved Chunk (similarity={row[1]:.4f}): {row[0]}" for row in chunk_rows]
+            context_pieces = []
+            if retrieved_chunks:
+                for c in retrieved_chunks:
+                    context_pieces.append(f"Retrieved Chunk: {c['text']}")
+            else:
+                for row in chunk_rows:
+                    context_pieces.append(f"Retrieved Chunk (similarity={row[1]:.4f}): {row[0]}")
+
             if full_transcript:
                 context_pieces.append(f"Full Video Transcript for '{video_title}':\n{full_transcript}")
+
             context_for_generation = "\n\n".join(context_pieces)
             prompt_text = build_chat_prompt(context_for_generation, user_query)
 
@@ -664,13 +739,52 @@ def api_chat_video_stream(video_id):
         except Exception as e:
             logger.exception("Error during chat-video stream generation:")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            if lease_id:
+                ResourceAdmission.release_lease(session=gen_session, lease_id=lease_id, owner=f"chat-{user_email}")
+            gen_session.close()
 
     return Response(
         stream_with_context(generate()),
         content_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
+        headers=headers,
     )
+
+
+@chat_bp.route("/api/conversations", methods=["GET", "POST"])
+@require_role(["admin", "member"])
+def api_conversations():
+    """List or create conversation sessions."""
+    user_info = get_current_user()
+    user_email = str(user_info[0]) if isinstance(user_info, tuple) and user_info[0] else "dev@localhost"
+    with SessionLocal() as session:
+        if request.method == "POST":
+            data = request.get_json() or {}
+            scope_type = data.get("scope_type", "global")
+            scope_id = data.get("scope_id", "global")
+            title = data.get("title", "New Conversation")
+            model_name, effort = ModelRegistryService.resolve_user_model(session, user_email)
+
+            conv = Conversation(
+                id=str(uuid.uuid4()),
+                user_id=user_email,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                title=title,
+                model_name=model_name,
+                reasoning_effort=effort,
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+            session.add(conv)
+            session.commit()
+            return jsonify(
+                {"id": conv.id, "title": conv.title, "scope_type": conv.scope_type, "scope_id": conv.scope_id}
+            )
+
+        convs = session.scalars(
+            select(Conversation).where(Conversation.user_id == user_email).order_by(Conversation.updated_at.desc())
+        ).all()
+        return jsonify(
+            [{"id": c.id, "title": c.title, "scope_type": c.scope_type, "scope_id": c.scope_id} for c in convs]
+        )
