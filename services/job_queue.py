@@ -12,6 +12,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from db.models import Job, WorkItem, utcnow
@@ -172,6 +173,11 @@ class JobQueue:
         item = session.get(WorkItem, work_item_id)
         if not item:
             raise ValueError(f"Work item {work_item_id} not found")
+        if item.status != "leased" or item.lease_owner != worker_id:
+            raise ValueError(
+                f"Work item {work_item_id} is no longer leased by {worker_id} "
+                f"(status={item.status}, owner={item.lease_owner})"
+            )
 
         item.status = "completed"
         item.result = result or {}
@@ -186,16 +192,11 @@ class JobQueue:
 
             if downstream_items:
                 for d_item in downstream_items:
-                    # Idempotent downstream insert (ignore if already exists)
-                    existing = session.scalar(
-                        select(WorkItem).where(
-                            WorkItem.job_id == job.id,
-                            WorkItem.stage == d_item["stage"],
-                            WorkItem.item_key == str(d_item["item_key"]),
-                        )
-                    )
-                    if not existing:
-                        wi = WorkItem(
+                    # Atomic idempotent insert — ON CONFLICT DO NOTHING prevents
+                    # TOCTOU races when concurrent workers complete upstream deps.
+                    stmt = (
+                        pg_insert(WorkItem)
+                        .values(
                             job_id=job.id,
                             stage=d_item["stage"],
                             resource_class=d_item["resource_class"],
@@ -209,7 +210,10 @@ class JobQueue:
                             created_at=now,
                             updated_at=now,
                         )
-                        session.add(wi)
+                        .on_conflict_do_nothing(index_elements=["job_id", "stage", "item_key"])
+                    )
+                    result = session.execute(stmt)
+                    if result.rowcount:
                         job.total_items += 1
 
             JobQueue._evaluate_job_completion(session, job)

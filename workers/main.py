@@ -10,6 +10,7 @@ import argparse
 import logging
 import signal
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -26,15 +27,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("worker")
 
-# Global stop flag for graceful termination
-_SHUTDOWN_REQUESTED = False
+# Global stop event for graceful termination — set() wakes any waiting sleep
+_SHUTDOWN_EVENT = threading.Event()
 
 
 def _signal_handler(signum: int, frame: Any) -> None:
-    global _SHUTDOWN_REQUESTED
     sig_name = signal.Signals(signum).name
     logger.info("Received %s signal. Initiating graceful worker drain...", sig_name)
-    _SHUTDOWN_REQUESTED = True
+    _SHUTDOWN_EVENT.set()
 
 
 # Stage handler registry (populated by stage modules in Phase 2-4)
@@ -124,7 +124,7 @@ def run_worker_loop(
     last_active_time = time.time()
     last_recovery_time = 0.0
 
-    while not _SHUTDOWN_REQUESTED:
+    while not _SHUTDOWN_EVENT.is_set():
         work_processed = False
 
         with SessionLocal() as session:
@@ -141,7 +141,7 @@ def run_worker_loop(
 
             # Attempt to claim work from any assigned resource class
             for r_class in resource_classes:
-                if _SHUTDOWN_REQUESTED:
+                if _SHUTDOWN_EVENT.is_set():
                     break
 
                 work_item = JobQueue.claim(
@@ -169,7 +169,7 @@ def run_worker_loop(
                 )
                 break
 
-            time.sleep(poll_interval_seconds)
+            _SHUTDOWN_EVENT.wait(timeout=poll_interval_seconds)
 
     logger.info("Worker %s shut down cleanly.", worker_id)
 

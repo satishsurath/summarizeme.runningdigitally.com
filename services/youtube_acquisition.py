@@ -54,7 +54,7 @@ class YouTubeAcquisitionService:
 
         # 2. Fallback to local subprocess yt-dlp
         if data is None:
-            cmd = ["yt-dlp", "--flat-playlist", "--dump-single-json", channel_url]
+            cmd = ["yt-dlp", "--flat-playlist", "--dump-single-json", "--", channel_url]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode != 0:
                 raise RuntimeError(f"yt-dlp discovery failed: {result.stderr}")
@@ -168,6 +168,7 @@ class YouTubeAcquisitionService:
                     "vtt/srt",
                     "--output",
                     "-",
+                    "--",
                     f"https://www.youtube.com/watch?v={video_id}",
                 ]
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)

@@ -1,5 +1,8 @@
 /**
  * TypeScript contracts for 9-section structured summaries, timestamps, and evidence citations.
+ *
+ * These types mirror the Pydantic models in services/contracts.py.
+ * The Python backend is authoritative — update TS to match Python, not the reverse.
  */
 
 export interface EvidenceReference {
@@ -12,13 +15,16 @@ export interface EvidenceReference {
 }
 
 export interface ExecutiveOverviewSection {
-  thesis: string;
-  core_takeaways: string[];
-  target_audience?: string | null;
+  text: string;
   evidence_ids?: string[];
 }
 
-export interface KeyTopicSection {
+export interface MainThesisSection {
+  statement: string;
+  evidence_ids?: string[];
+}
+
+export interface TopicSection {
   topic: string;
   importance: "high" | "medium" | "low";
   summary: string;
@@ -33,24 +39,41 @@ export interface ChapterSection {
   evidence_ids?: string[];
 }
 
-export interface TechnicalDetailSection {
-  topic: string;
-  category: "architecture" | "configuration" | "metric" | "code_pattern" | "other";
-  details: string;
+export interface ImportantDetailSection {
+  statement: string;
+  classification: "fact" | "opinion" | "prediction" | "recommendation";
+  speaker?: string | null;
+  evidence_ids?: string[];
+}
+
+export interface DecisionSection {
+  decision: string;
+  rationale?: string | null;
   evidence_ids?: string[];
 }
 
 export interface RecommendationSection {
   recommendation: string;
-  priority: "critical" | "high" | "medium" | "low";
-  rationales: string[];
+  target_audience?: string | null;
+  evidence_ids?: string[];
+}
+
+export interface ActionItemSection {
+  action: string;
+  owner?: string | null;
+  due_date?: string | null;
   evidence_ids?: string[];
 }
 
 export interface GlossaryTerm {
   term: string;
   definition: string;
-  context?: string | null;
+  evidence_ids?: string[];
+}
+
+export interface OpenQuestionItem {
+  question: string;
+  evidence_ids?: string[];
 }
 
 export interface CaveatItem {
@@ -59,17 +82,17 @@ export interface CaveatItem {
 }
 
 export interface StructuredSummaryV3 {
-  schema_version: "3.0.0";
-  video_id: string;
-  title: string;
-  channel_name?: string | null;
-  duration_seconds: number;
+  schema_version: "summary.v3";
   executive_overview: ExecutiveOverviewSection;
-  key_topics: KeyTopicSection[];
+  main_thesis: MainThesisSection;
+  topics: TopicSection[];
   chapters: ChapterSection[];
-  technical_details: TechnicalDetailSection[];
+  important_details: ImportantDetailSection[];
+  decisions: DecisionSection[];
   recommendations: RecommendationSection[];
+  action_items: ActionItemSection[];
   glossary: GlossaryTerm[];
+  open_questions: OpenQuestionItem[];
   caveats: CaveatItem[];
   evidence: EvidenceReference[];
 }

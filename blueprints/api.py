@@ -57,6 +57,7 @@ def api_channel_start():
 
 
 @api_bp.route("/channel/status/<task_id>", methods=["GET"])
+@require_role(["admin", "member"])
 def api_channel_status(task_id):
     """Returns the status of an ongoing channel download process."""
     task = task_store.get_task(task_id)
@@ -267,6 +268,7 @@ def api_summarize_v2():
 
 
 @api_bp.route("/summarize_v2/status/<task_id>", methods=["GET"])
+@require_role(["admin", "member"])
 def api_summarize_v2_status(task_id):
     """Returns progress for the SummariesV2 generation task."""
     task = task_store.get_task(task_id)
@@ -292,6 +294,7 @@ def api_summarize_v2_status(task_id):
 
 
 @api_bp.route("/active-tasks", methods=["GET"])
+@require_role(["admin", "member"])
 def api_active_tasks():
     """Return list of active (pending/running) tasks for the notification dropdown."""
     active = []
@@ -315,6 +318,7 @@ def api_active_tasks():
 
 
 @api_bp.route("/channels", methods=["GET"])
+@require_role(["admin", "member"])
 def api_list_channels():
     session = SessionLocal()
     try:
@@ -327,6 +331,7 @@ def api_list_channels():
 
 
 @api_bp.route("/transcript/<video_id>", methods=["GET"])
+@require_role(["admin", "member"])
 def api_get_transcript(video_id):
     """Returns the transcript for a specific video."""
     session = SessionLocal()
@@ -490,6 +495,7 @@ def api_all_tasks():
 
 
 @api_bp.route("/vllm/models", methods=["GET"])
+@require_role(["admin", "member"])
 def api_vllm_models():
     """Returns model lists from both vLLM instances (if configured)."""
     models = []
@@ -506,6 +512,7 @@ def api_vllm_models():
 
 
 @api_bp.route("/models", methods=["GET"])
+@require_role(["admin", "member"])
 def api_models():
     """Return active qualified models from ModelRegistryService."""
     with SessionLocal() as session:

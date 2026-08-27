@@ -22,11 +22,11 @@ IDLE_GRACE_SECONDS=300
 DB_URL="${DATABASE_URL:-postgresql://summarizeme:summarizeme_pass@localhost:55432/summarizeme}"
 
 # Query pending / running work items
-PENDING_COUNT=$(python3 -c "
+PENDING_COUNT=$(DB_URL="${DB_URL}" python3 -c "
 import os, sys
 from sqlalchemy import create_engine, text
 try:
-    engine = create_engine('${DB_URL}')
+    engine = create_engine(os.environ['DB_URL'])
     with engine.connect() as conn:
         res = conn.execute(text(\"SELECT count(*) FROM work_items WHERE status IN ('pending', 'running');\")).scalar()
         print(int(res or 0))

@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app_config import (
@@ -188,24 +189,33 @@ class ModelRegistryService:
         preferred_gen_model: str | None = None,
         preferred_reasoning_effort: str | None = None,
     ) -> UserAIPreference:
-        """Update or create user model and reasoning preferences."""
+        """Update or create user model and reasoning preferences (atomic upsert)."""
         now = utcnow()
-        pref = session.scalar(select(UserAIPreference).where(UserAIPreference.user_id == user_id))
-        if not pref:
-            pref = UserAIPreference(
+        gen_model = preferred_gen_model or DEFAULT_GEN_MODEL
+        effort = preferred_reasoning_effort or "medium"
+
+        stmt = (
+            pg_insert(UserAIPreference)
+            .values(
                 user_id=user_id,
-                preferred_gen_model=preferred_gen_model or DEFAULT_GEN_MODEL,
-                preferred_reasoning_effort=preferred_reasoning_effort or "medium",
+                preferred_gen_model=gen_model,
+                preferred_reasoning_effort=effort,
                 created_at=now,
                 updated_at=now,
             )
-            session.add(pref)
-        else:
-            if preferred_gen_model:
-                pref.preferred_gen_model = preferred_gen_model
-            if preferred_reasoning_effort:
-                pref.preferred_reasoning_effort = preferred_reasoning_effort
-            pref.updated_at = now
-
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "preferred_gen_model": preferred_gen_model or UserAIPreference.preferred_gen_model,
+                    "preferred_reasoning_effort": preferred_reasoning_effort
+                    or UserAIPreference.preferred_reasoning_effort,
+                    "updated_at": now,
+                },
+            )
+        )
+        session.execute(stmt)
         session.commit()
-        return pref
+
+        # Re-fetch the merged row to return
+        pref = session.scalar(select(UserAIPreference).where(UserAIPreference.user_id == user_id))
+        return pref  # type: ignore[return-value]

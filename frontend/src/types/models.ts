@@ -2,7 +2,7 @@
  * TypeScript contracts for AI model registry, endpoints, pools, and user preferences.
  */
 
-export type ReasoningEffort = "disabled" | "low" | "medium" | "xhigh";
+export type ReasoningEffort = "disabled" | "low" | "medium" | "high" | "xhigh";
 
 export interface AIEndpoint {
   id: string;

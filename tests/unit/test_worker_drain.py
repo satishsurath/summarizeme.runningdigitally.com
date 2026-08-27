@@ -16,12 +16,15 @@ class TestWorkerDrain:
 
     def test_handle_sigterm_sets_shutdown_flag(self):
         """SIGTERM handler must toggle shutdown event flag without sudden crash."""
-        worker_module._SHUTDOWN_REQUESTED = False
-        assert worker_module._SHUTDOWN_REQUESTED is False
+        worker_module._SHUTDOWN_EVENT.clear()
+        assert not worker_module._SHUTDOWN_EVENT.is_set()
 
         # Simulate SIGTERM signal dispatch
         _signal_handler(signal.SIGTERM, None)
-        assert worker_module._SHUTDOWN_REQUESTED is True
+        assert worker_module._SHUTDOWN_EVENT.is_set()
+
+        # Reset for other tests
+        worker_module._SHUTDOWN_EVENT.clear()
 
     @patch("workers.main.SessionLocal")
     def test_run_worker_loop_exits_cleanly_on_shutdown(self, mock_session_factory):
@@ -29,7 +32,7 @@ class TestWorkerDrain:
         mock_session = MagicMock()
         mock_session_factory.return_value.__enter__.return_value = mock_session
 
-        worker_module._SHUTDOWN_REQUESTED = True
+        worker_module._SHUTDOWN_EVENT.set()
         run_worker_loop(
             resource_classes=["control"],
             worker_id="test-worker",
@@ -37,6 +40,9 @@ class TestWorkerDrain:
             idle_exit_seconds=10,
         )
         # Exited without error
+
+        # Reset for other tests
+        worker_module._SHUTDOWN_EVENT.clear()
 
     def test_active_lease_cleanup_on_drain(self):
         """Verify expired or orphaned leases can be reaped after worker termination."""

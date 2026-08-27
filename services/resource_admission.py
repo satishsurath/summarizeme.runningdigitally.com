@@ -75,8 +75,10 @@ class ResourceAdmission:
             )
         )
 
-        # 2. Check configured max_in_flight limit
-        limit_row = session.get(ResourceLimit, resource_class)
+        # 2. Check configured max_in_flight limit (lock row to serialize concurrent checks)
+        limit_row = session.scalar(
+            select(ResourceLimit).where(ResourceLimit.resource_class == resource_class).with_for_update()
+        )
         if limit_row and hasattr(limit_row, "max_in_flight") and isinstance(limit_row.max_in_flight, int):
             max_in_flight = limit_row.max_in_flight
         else:

@@ -66,10 +66,12 @@ class RetrievalService:
             if not target_video_ids:
                 target_video_ids = [scope_id]
 
-        # 2. Fetch candidate chunks
+        # 2. Fetch candidate chunks (bounded to prevent OOM without pgvector)
+        _MAX_CANDIDATE_CHUNKS = 5000
         stmt = select(ContentChunk)
         if target_video_ids:
             stmt = stmt.where(ContentChunk.video_id.in_(target_video_ids))
+        stmt = stmt.limit(_MAX_CANDIDATE_CHUNKS)
 
         candidate_chunks = session.scalars(stmt).all()
         if not candidate_chunks:

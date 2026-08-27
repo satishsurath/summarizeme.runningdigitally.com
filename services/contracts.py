@@ -264,9 +264,10 @@ def normalize_transcript_text(text: str) -> str:
     """Normalize text for whitespace, casing, and punctuation matching."""
     if not text:
         return ""
-    # Collapse multiple whitespaces/newlines into a single space
-    cleaned = re.sub(r"\s+", " ", text.strip().lower())
-    return cleaned
+    # Strip punctuation then collapse whitespace — LLMs frequently alter
+    # punctuation when quoting, so removing it prevents false mismatches.
+    cleaned = re.sub(r"[^\w\s]", "", text.strip().lower())
+    return re.sub(r"\s+", " ", cleaned)
 
 
 def validate_quote_containment(excerpt: str, normalized_transcript: str) -> bool:

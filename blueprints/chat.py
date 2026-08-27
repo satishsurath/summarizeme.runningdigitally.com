@@ -200,6 +200,7 @@ def format_youtube_citations_html(unique_videos: dict[str, str]) -> str:
 
 
 @chat_bp.route("/chat-channel/<channel_name>", methods=["GET"])
+@require_role(["admin", "member"])
 def chat_channel_page(channel_name):
     """Render a page to chat with the entire channel."""
     session = SessionLocal()
@@ -218,6 +219,7 @@ def chat_channel_page(channel_name):
 
 
 @chat_bp.route("/chat-video/<video_id>", methods=["GET"])
+@require_role(["admin", "member"])
 def chat_video_page(video_id):
     """Renders a page that allows chatting with a single video's content."""
     session = SessionLocal()
@@ -259,6 +261,13 @@ def api_chat_channel(channel_name):
 
     if not user_query:
         return jsonify({"answer": "No query provided."}), 400
+
+    # Validate model_name against registry
+    with SessionLocal() as _sess:
+        available = ModelRegistryService.list_available_models(_sess, endpoint_type="generation")
+        valid_ids = {m["model_id"] for m in available} if available else set()
+        if valid_ids and model_name not in valid_ids:
+            model_name = DEFAULT_GEN_MODEL
 
     logger.info(
         "Chat-channel query for channel=%s, user_query=%r, data_type=%r, model=%r",
@@ -353,6 +362,13 @@ def api_chat_video(video_id):
 
     data_type = data.get("data_type", "comprehensive_notes")
     model_name = data.get("model_name") or data.get("model") or DEFAULT_GEN_MODEL
+
+    # Validate model_name against registry
+    with SessionLocal() as _sess:
+        available = ModelRegistryService.list_available_models(_sess, endpoint_type="generation")
+        valid_ids = {m["model_id"] for m in available} if available else set()
+        if valid_ids and model_name not in valid_ids:
+            model_name = DEFAULT_GEN_MODEL
 
     logger.info(
         "Chat-video query for video_id=%s, user_query=%r, data_type=%r, model=%r",
