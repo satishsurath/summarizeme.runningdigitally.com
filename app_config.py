@@ -6,6 +6,7 @@ Imported by both app.py and blueprint modules to avoid circular imports.
 import logging
 import os
 from functools import wraps
+from typing import Any
 
 import markdown
 from dotenv import load_dotenv
@@ -82,7 +83,21 @@ if not (
     raise RuntimeError(
         f"DATABASE_URL must start with 'postgresql://' or 'postgresql+psycopg2://', got: {DB_URL[:50]}..."
     )
-engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)  # 30 minutes
+engine_kwargs: dict[str, Any] = {
+    "echo": False,
+    "pool_pre_ping": True,
+    "pool_recycle": 1800,  # 30 minutes
+}
+if not DB_URL.startswith("sqlite"):
+    engine_kwargs.update(
+        {
+            "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+            "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        }
+    )
+
+engine = create_engine(DB_URL, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine)
 VLLM_EMBED_MODEL = os.getenv("VLLM_EMBED_MODEL", "nemo-nomic-embed-text-v1.5")
 

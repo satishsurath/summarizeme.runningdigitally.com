@@ -66,7 +66,7 @@ class TestSummaryService:
         }
         mock_post.return_value = mock_resp
 
-        summary, reasoning, usage = SummaryService.generate_structured_summary(
+        summary, reasoning, usage, _errors = SummaryService.generate_structured_summary(
             transcript_text=SHORT_TECH_TEXT,
             video_title="PostgreSQL 16 Vector Optimization",
             model_name="nemo-qwen3.8-27b-nvfp4",
@@ -90,7 +90,7 @@ class TestSummaryService:
         }
         mock_post.return_value = mock_resp
 
-        summary, _, _ = SummaryService.generate_structured_summary(
+        summary, _, _, _ = SummaryService.generate_structured_summary(
             transcript_text=SHORT_TECH_TEXT,
             video_title="Fenced Test",
         )
@@ -154,3 +154,50 @@ class TestSummaryService:
         all_runs = session.scalars(select(SummaryRun).where(SummaryRun.video_id == "vid_persisted")).all()
         assert len(all_runs) == 2
         assert second_run.id != sr.id
+
+    @patch("httpx.Client.post")
+    def test_generate_and_persist_summary_validation_failure_review_required(self, mock_post):
+        # Create summary with hallucinated quote not in transcript
+        bad_summary = dict(SAMPLE_STRUCTURED_SUMMARY_DICT)
+        bad_summary["evidence"] = [
+            {
+                "id": "E1",
+                "start_seconds": 10.0,
+                "end_seconds": 20.0,
+                "speaker": "Speaker",
+                "excerpt": "This exact sentence does not appear anywhere in the video transcript at all.",
+                "youtube_url": None,
+            }
+        ]
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": json.dumps(bad_summary)}}],
+            "usage": {"prompt_tokens": 500, "completion_tokens": 200},
+        }
+        mock_post.return_value = mock_resp
+
+        session = create_in_memory_session()
+        video = Video(
+            video_id="vid_bad_quotes",
+            title="Bad Quotes Test",
+            transcript_no_ts=SHORT_TECH_TEXT,
+        )
+        session.add(video)
+        session.commit()
+
+        summary_run, _ = SummaryService.generate_and_persist_summary(
+            session=session,
+            video_id="vid_bad_quotes",
+            model_name="nemo-qwen3.8-27b-nvfp4",
+        )
+
+        assert summary_run.status == "review_required"
+        assert summary_run.validation_errors is not None
+        assert len(summary_run.validation_errors) > 0
+        assert any("Ungrounded evidence quote" in err for err in summary_run.validation_errors)
+
+        # Ensure legacy SummariesV2 was NOT written for invalid run
+        v2 = session.scalar(select(SummariesV2).where(SummariesV2.video_id == "vid_bad_quotes"))
+        assert v2 is None

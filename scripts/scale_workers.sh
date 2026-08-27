@@ -21,30 +21,40 @@ IDLE_GRACE_SECONDS=300
 # Database URL from env or default
 DB_URL="${DATABASE_URL:-postgresql://summarizeme:summarizeme_pass@localhost:55432/summarizeme}"
 
-# Query pending / running work items
-PENDING_COUNT=$(DB_URL="${DB_URL}" python3 -c "
-import os, sys
+# Query pending, leased, and retry work items and active leases
+STATUS_JSON=$(DB_URL="${DB_URL}" python3 -c "
+import os, sys, json
 from sqlalchemy import create_engine, text
 try:
     engine = create_engine(os.environ['DB_URL'])
     with engine.connect() as conn:
-        res = conn.execute(text(\"SELECT count(*) FROM work_items WHERE status IN ('pending', 'running');\")).scalar()
-        print(int(res or 0))
+        active_items = conn.execute(text(\"SELECT count(*) FROM work_items WHERE status IN ('pending', 'leased', 'retry');\")).scalar() or 0
+        active_leases = conn.execute(text(\"SELECT count(*) FROM resource_leases WHERE expires_at > CURRENT_TIMESTAMP;\")).scalar() or 0
+        gen_items = conn.execute(text(\"SELECT count(*) FROM work_items WHERE stage = 'summarize' AND status IN ('pending', 'leased', 'retry');\")).scalar() or 0
+        print(json.dumps({'status': 'ok', 'active_items': int(active_items), 'active_leases': int(active_leases), 'gen_items': int(gen_items)}))
 except Exception as e:
-    # If connection fails or table doesn't exist yet, report 0
-    print(0)
-" 2>/dev/null || echo 0)
+    print(json.dumps({'status': 'error', 'error': str(e)}))
+" 2>/dev/null || echo '{"status": "error", "error": "execution_failed"}')
 
-echo "[$(date -u +'%Y-%m-%d %H:%M:%SZ')] Queue check: ${PENDING_COUNT} active work item(s)."
+DB_STATUS=$(echo "${STATUS_JSON}" | python3 -c "import sys, json; print(json.load(sys.stdin).get('status', 'error'))")
+if [ "${DB_STATUS}" != "ok" ]; then
+  echo "[$(date -u +'%Y-%m-%d %H:%M:%SZ')] [ERROR] Database check failed during worker scaling check. Refusing to scale down."
+  exit 0
+fi
+
+PENDING_COUNT=$(echo "${STATUS_JSON}" | python3 -c "import sys, json; print(json.load(sys.stdin).get('active_items', 0))")
+ACTIVE_LEASES=$(echo "${STATUS_JSON}" | python3 -c "import sys, json; print(json.load(sys.stdin).get('active_leases', 0))")
+
+echo "[$(date -u +'%Y-%m-%d %H:%M:%SZ')] Queue check: ${PENDING_COUNT} active work item(s), ${ACTIVE_LEASES} active lease(s)."
 
 WORKER_SERVICES="worker-control worker-transcript worker-summary worker-embedding"
 
-if [ "${PENDING_COUNT}" -gt 0 ]; then
+if [ "${PENDING_COUNT}" -gt 0 ] || [ "${ACTIVE_LEASES}" -gt 0 ]; then
   # Work present: clear idle marker and ensure workers running
   if [ -f "${IDLE_MARKER}" ]; then
     rm -f "${IDLE_MARKER}"
   fi
-  echo "[Scale-Up] Active jobs detected (${PENDING_COUNT}). Starting worker containers..."
+  echo "[Scale-Up] Active work detected (items=${PENDING_COUNT}, leases=${ACTIVE_LEASES}). Starting worker containers..."
   docker compose -f "${COMPOSE_FILE}" up -d ${WORKER_SERVICES}
 else
   # No work: track idle time
@@ -56,8 +66,12 @@ else
     IDLE_START=$(cat "${IDLE_MARKER}")
     ELAPSED=$((NOW - IDLE_START))
     if [ "${ELAPSED}" -ge "${IDLE_GRACE_SECONDS}" ]; then
-      echo "[Scale-To-Zero] Queue idle for ${ELAPSED}s (>= ${IDLE_GRACE_SECONDS}s). Stopping worker containers..."
-      docker compose -f "${COMPOSE_FILE}" stop ${WORKER_SERVICES} || true
+      if [ "${ACTIVE_LEASES}" -eq 0 ]; then
+        echo "[Scale-To-Zero] Queue idle for ${ELAPSED}s (>= ${IDLE_GRACE_SECONDS}s). Gracefully stopping worker containers..."
+        docker compose -f "${COMPOSE_FILE}" stop ${WORKER_SERVICES} || true
+      else
+        echo "[Scale-To-Zero Deferred] Active leases still running (${ACTIVE_LEASES}). Allowing work to finish."
+      fi
     else
       REMAINING=$((IDLE_GRACE_SECONDS - ELAPSED))
       echo "[Idle] Queue empty for ${ELAPSED}s. ${REMAINING}s remaining before scale-to-zero."

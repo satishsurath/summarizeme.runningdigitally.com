@@ -174,8 +174,22 @@ class YouTubeAcquisitionService:
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if proc.returncode == 0 and proc.stdout:
                     raw_srt = proc.stdout
+                elif proc.returncode != 0:
+                    stderr = proc.stderr or ""
+                    if "429" in stderr or "Too Many Requests" in stderr or "rate limit" in stderr.lower():
+                        raise RuntimeError(f"RATE_LIMIT_429: YouTube throttled request for {video_id}: {stderr[:200]}")
+                    elif "Private video" in stderr or "Video unavailable" in stderr or "removed" in stderr.lower():
+                        raise ValueError(f"UNAVAILABLE_VIDEO: Video {video_id} is private or deleted: {stderr[:200]}")
+                    elif "no subtitles" in stderr.lower() or "no automatic captions" in stderr.lower():
+                        logger.info("No captions available for video %s", video_id)
+                        raw_srt = ""
+                    else:
+                        logger.warning("yt-dlp transcript fetch non-zero exit for %s: %s", video_id, stderr[:200])
+            except (RuntimeError, ValueError):
+                raise
             except Exception as exc:
                 logger.warning("yt-dlp subprocess transcript fetch failed for %s: %s", video_id, exc)
+                raise ConnectionError(f"TRANSIENT_NETWORK: Failed to fetch transcript for {video_id}: {exc}") from exc
 
         raw_entries = YouTubeAcquisitionService.parse_raw_srt(raw_srt)
         if not raw_entries:

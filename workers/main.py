@@ -67,9 +67,10 @@ register_stage_handler("embed_summary", handle_embed_summary)
 register_stage_handler("finalize", handle_finalize)
 
 
-def execute_work_item(work_item: Any, session: Any) -> None:
-    """Execute the handler for a given work item."""
+def execute_work_item(work_item: Any, session: Any, lease_seconds: int = 600) -> None:
+    """Execute the handler for a given work item with background lease heartbeats and fencing."""
     stage = work_item.stage
+    worker_id = work_item.lease_owner or "unknown"
     handler = STAGE_HANDLERS.get(stage)
 
     if not handler:
@@ -77,32 +78,76 @@ def execute_work_item(work_item: Any, session: Any) -> None:
         JobQueue.complete(
             session=session,
             work_item_id=work_item.id,
-            worker_id=work_item.lease_owner or "unknown",
+            worker_id=worker_id,
             result={"status": "stub_completed", "stage": stage},
         )
         return
 
+    # Start heartbeat renewal thread
+    heartbeat_stop = threading.Event()
+    lease_lost = threading.Event()
+    hb_interval = max(5.0, float(lease_seconds) / 3.0)
+
+    def _heartbeat_worker():
+        while not heartbeat_stop.wait(timeout=hb_interval):
+            try:
+                with SessionLocal() as hb_session:
+                    renewed = JobQueue.renew(
+                        session=hb_session,
+                        work_item_id=work_item.id,
+                        worker_id=worker_id,
+                        lease_seconds=lease_seconds,
+                    )
+                    if not renewed:
+                        logger.warning(
+                            "Lease lost for work_item %d (owner=%s) during heartbeat. Fencing execution.",
+                            work_item.id,
+                            worker_id,
+                        )
+                        lease_lost.set()
+                        break
+            except Exception as hb_exc:
+                logger.warning("Heartbeat renewal error for work_item %d: %s", work_item.id, hb_exc)
+
+    hb_thread = threading.Thread(target=_heartbeat_worker, daemon=True, name=f"hb-{work_item.id}")
+    hb_thread.start()
+
     try:
         outcome = handler(work_item.payload, session)
+
+        if lease_lost.is_set():
+            logger.error(
+                "Work item %d finished after lease was lost. Refusing to commit fenced outcome.",
+                work_item.id,
+            )
+            return
+
         downstream = outcome.get("downstream_items")
         result = outcome.get("result", {})
         JobQueue.complete(
             session=session,
             work_item_id=work_item.id,
-            worker_id=work_item.lease_owner or "unknown",
+            worker_id=worker_id,
             result=result,
             downstream_items=downstream,
         )
     except Exception as exc:
         logger.exception("Error executing work_item %d (stage=%s): %s", work_item.id, stage, exc)
-        JobQueue.retry(
-            session=session,
-            work_item_id=work_item.id,
-            worker_id=work_item.lease_owner or "unknown",
-            delay_seconds=60,
-            error_code=type(exc).__name__,
-            error_message=str(exc),
-        )
+        if not lease_lost.is_set():
+            try:
+                JobQueue.retry(
+                    session=session,
+                    work_item_id=work_item.id,
+                    worker_id=worker_id,
+                    delay_seconds=60,
+                    error_code=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            except Exception as retry_exc:
+                logger.warning("Failed to mark work_item %d for retry: %s", work_item.id, retry_exc)
+    finally:
+        heartbeat_stop.set()
+        hb_thread.join(timeout=1.0)
 
 
 def run_worker_loop(
@@ -154,7 +199,7 @@ def run_worker_loop(
                 if work_item:
                     work_processed = True
                     last_active_time = time.time()
-                    execute_work_item(work_item, session)
+                    execute_work_item(work_item, session, lease_seconds=lease_seconds)
                     break  # loop to next iteration to claim next available item
 
         if not work_processed:

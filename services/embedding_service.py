@@ -17,7 +17,12 @@ import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app_config import DEFAULT_EMBED_MODEL, VLLM_EMBED_URL
+from app_config import (
+    DEFAULT_EMBED_MODEL,
+    EMBED_MAX_BATCH_TOKENS,
+    EMBED_MAX_SEQUENCES,
+    VLLM_EMBED_URL,
+)
 from db.models import ContentChunk, SummaryRun, TranscriptSegment, Video, utcnow
 from services.contracts import StructuredSummaryV3
 
@@ -37,17 +42,70 @@ def compute_chunk_hash(video_id: str, chunk_type: str, sequence_index: int, text
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def split_oversize_text(text: str, max_tokens: int = EMBED_MAX_BATCH_TOKENS) -> list[str]:
+    """Deterministically split an oversize text into chunks each fitting within max_tokens."""
+    if estimate_token_count(text) <= max_tokens:
+        return [text]
+
+    # Split by paragraphs or sentences
+    chunks: list[str] = []
+    lines = text.split("\n")
+    current_chunk: list[str] = []
+    current_tokens = 0
+
+    for line in lines:
+        line_tokens = estimate_token_count(line)
+        if line_tokens > max_tokens:
+            # Word-level fallback for huge lines
+            words = line.split()
+            w_chunk: list[str] = []
+            w_tokens = 0
+            for w in words:
+                wt = estimate_token_count(w + " ")
+                if w_tokens + wt > max_tokens and w_chunk:
+                    chunks.append(" ".join(w_chunk))
+                    w_chunk = [w]
+                    w_tokens = wt
+                else:
+                    w_chunk.append(w)
+                    w_tokens += wt
+            if w_chunk:
+                chunks.append(" ".join(w_chunk))
+            continue
+
+        if current_tokens + line_tokens > max_tokens and current_chunk:
+            chunks.append("\n".join(current_chunk))
+            current_chunk = [line]
+            current_tokens = line_tokens
+        else:
+            current_chunk.append(line)
+            current_tokens += line_tokens
+
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
+
+    return chunks or [text[: max_tokens * 4]]
+
+
 def pack_embedding_batch(
     texts: list[str],
-    max_batch_size: int = 32,
-    max_tokens: int = 8192,
+    max_batch_size: int = EMBED_MAX_SEQUENCES,
+    max_tokens: int = EMBED_MAX_BATCH_TOKENS,
 ) -> list[list[str]]:
-    """Pack texts into batches respecting max items and max aggregate token limits."""
+    """Pack texts into batches respecting max items and max aggregate token limits (Nemo hard ceiling)."""
+    # First ensure no individual item exceeds max_tokens
+    normalized_texts: list[str] = []
+    for text in texts:
+        if estimate_token_count(text) > max_tokens:
+            normalized_texts.extend(split_oversize_text(text, max_tokens=max_tokens))
+        else:
+            normalized_texts.append(text)
+
     batches: list[list[str]] = []
     current_batch: list[str] = []
     current_tokens = 0
 
-    for text in texts:
+    for text in normalized_texts:
         t_count = estimate_token_count(text)
         if len(current_batch) >= max_batch_size or (current_tokens + t_count > max_tokens and current_batch):
             batches.append(current_batch)
@@ -84,7 +142,11 @@ class EmbeddingService:
         prefix = "search_query: " if is_query else "search_document: "
         prefixed_texts = [t if t.startswith(("search_query: ", "search_document: ")) else f"{prefix}{t}" for t in texts]
 
-        batches = pack_embedding_batch(prefixed_texts, max_batch_size=32, max_tokens=8192)
+        batches = pack_embedding_batch(
+            prefixed_texts,
+            max_batch_size=EMBED_MAX_SEQUENCES,
+            max_tokens=EMBED_MAX_BATCH_TOKENS,
+        )
         all_embeddings: list[list[float]] = []
 
         url = f"{base_url.rstrip('/')}/v1/embeddings"
@@ -313,18 +375,22 @@ class EmbeddingService:
             if not video or not video.transcript_no_ts:
                 logger.warning("No transcript content to embed for video %s", video_id)
                 return 0
-            # Synthesize single segment
+
+            # Synthesize segment windows covering the whole transcript without silent truncation
+            full_text = video.transcript_no_ts.strip()
+            text_chunks = split_oversize_text(full_text, max_tokens=400)
             raw_chunks = [
                 {
                     "chunk_type": "transcript",
                     "parent_id": None,
-                    "sequence_index": 0,
+                    "sequence_index": idx,
                     "start_seconds": 0.0,
                     "end_seconds": 0.0,
                     "speaker": None,
-                    "text": video.transcript_no_ts[:1500],
-                    "token_count": estimate_token_count(video.transcript_no_ts[:1500]),
+                    "text": chunk_t,
+                    "token_count": estimate_token_count(chunk_t),
                 }
+                for idx, chunk_t in enumerate(text_chunks)
             ]
         else:
             raw_chunks = EmbeddingService.chunk_transcript_segments(list(segments))

@@ -6,27 +6,22 @@ import threading
 
 import requests
 from flask import Blueprint, jsonify, request
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 
 from app_config import (
-    ASYNC_PIPELINE_ENABLED,
     DEFAULT_GEN_MODEL,
     VLLM_EMBED_URL,
     VLLM_GEN_URL,
     SessionLocal,
     SQLAlchemyError,
-    build_prompts_for_chunk,
-    chunk_transcript,
     download_channel_transcripts,
     require_role,
     task_store,
-    vllm_generate_chunk,
 )
 from app_config import (
     shared_logger as logger,
 )
-from db.models import SummariesV2, Video, VideoFolder
-from prompts import SYSTEM_PROMPT_SUMMARIZER
+from db.models import Job, SummariesV2, TranscriptSegment, Video, VideoFolder, WorkItem
 from services.contracts import ReasoningEffort
 from services.job_queue import JobQueue
 from services.model_registry import ModelRegistryService
@@ -37,7 +32,7 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 @api_bp.route("/channel/start", methods=["POST"])
 @require_role(["admin"])  # Only allow admins to start channel downloads
 def api_channel_start():
-    """Start downloading transcripts for the entire channel."""
+    """Start downloading transcripts for the entire channel via durable JobQueue."""
     data = request.get_json()
     if not data or "channel_url" not in data:
         return jsonify({"status": "error", "message": "No channel_url provided"}), 400
@@ -49,51 +44,31 @@ def api_channel_start():
     if not channel_url:
         return jsonify({"status": "error", "message": "No channel_url provided"}), 400
 
-    if ASYNC_PIPELINE_ENABLED:
-        idempotency_key = request.headers.get("Idempotency-Key")
-        with SessionLocal() as session:
-            job = JobQueue.create_job(
-                session=session,
-                job_type="channel_ingest",
-                payload={"channel_url": channel_url},
-                idempotency_key=idempotency_key,
-                initial_work_items=[
-                    {
-                        "stage": "discover",
-                        "resource_class": "control",
-                        "item_key": channel_url,
-                        "payload": {"channel_url": channel_url},
-                    }
-                ],
-            )
-            job_id = job.id
-        return jsonify({"status": "initiated", "task_id": job_id})
+    idempotency_key = request.headers.get("Idempotency-Key")
+    with SessionLocal() as session:
+        job = JobQueue.create_job(
+            session=session,
+            job_type="channel_ingest",
+            payload={"channel_url": channel_url},
+            idempotency_key=idempotency_key,
+            initial_work_items=[
+                {
+                    "stage": "discover",
+                    "resource_class": "control",
+                    "item_key": channel_url,
+                    "payload": {"channel_url": channel_url},
+                }
+            ],
+        )
+        job_id = job.id
 
-    task_id = task_store.create_task("download", {"channel_url": channel_url})
-
-    def run_download():
-        try:
-            download_channel_transcripts(channel_url, task_store, task_id)
-            task_store.update_task(task_id, status="completed")
-        except Exception as e:
-            logger.error("Error in channel download: %s", e)
-            task_store.update_task(task_id, status="failed", errors=[str(e)])
-
-    thread = threading.Thread(target=run_download, daemon=True)
-    thread.start()
-
-    return jsonify({"status": "initiated", "task_id": task_id})
+    return jsonify({"status": "initiated", "task_id": job_id})
 
 
 @api_bp.route("/channel/status/<task_id>", methods=["GET"])
 @require_role(["admin", "member"])
 def api_channel_status(task_id):
-    """Returns the status of an ongoing channel download process."""
-    task = task_store.get_task(task_id)
-    if task:
-        return jsonify(task.to_dict())
-
-    # Fallback / Pipeline adapter: check JobQueue
+    """Returns the status of an ongoing channel download process from durable PostgreSQL jobs."""
     with SessionLocal() as session:
         progress = JobQueue.get_job_progress(session, task_id)
         if progress:
@@ -107,6 +82,11 @@ def api_channel_status(task_id):
                     "stages": progress.get("stages", {}),
                 }
             )
+
+    # Fallback check on legacy task_store if still in migration
+    task = task_store.get_task(task_id)
+    if task:
+        return jsonify(task.to_dict())
 
     return jsonify({"status": "error", "message": "Invalid task ID"}), 404
 
@@ -198,156 +178,50 @@ def api_summarize_v2():
     if reasoning_effort not in {effort.value for effort in ReasoningEffort}:
         return jsonify({"status": "error", "message": "Unsupported reasoning_effort"}), 400
 
-    if ASYNC_PIPELINE_ENABLED:
-        idempotency_key = request.headers.get("Idempotency-Key")
-        initial_work_items = [
-            {
-                "stage": "summarize",
-                "resource_class": "generation",
-                "item_key": video_id,
-                "payload": {
-                    "video_id": video_id,
-                    "model_name": model_name,
-                    "reasoning_effort": reasoning_effort,
-                },
-            }
-            for video_id in video_ids
-        ]
-        with SessionLocal() as session:
-            job = JobQueue.create_job(
-                session=session,
-                job_type="summarize",
-                payload={
-                    "channel_name": channel_name,
-                    "video_ids": video_ids,
-                    "model_name": model_name,
-                    "reasoning_effort": reasoning_effort,
-                },
-                idempotency_key=idempotency_key,
-                initial_work_items=initial_work_items,
-            )
-            job_id = job.id
-        return jsonify({"status": "initiated", "task_id": job_id})
+    idempotency_key = request.headers.get("Idempotency-Key")
+    initial_work_items = [
+        {
+            "stage": "summarize",
+            "resource_class": "generation",
+            "item_key": video_id,
+            "payload": {
+                "video_id": video_id,
+                "model_name": model_name,
+                "reasoning_effort": reasoning_effort,
+            },
+        }
+        for video_id in video_ids
+    ]
+    with SessionLocal() as session:
+        # Also ensure folder associations exist
+        now = datetime.datetime.now(datetime.timezone.utc)  # noqa: UP017
+        for vid in video_ids:
+            existing_folder = session.query(VideoFolder).filter_by(folder_name=channel_name, video_id=vid).first()
+            if not existing_folder:
+                session.add(VideoFolder(folder_name=channel_name, video_id=vid, last_modified=now))
+        session.commit()
 
-    task_id = task_store.create_task(
-        "summarize",
-        {"channel_name": channel_name, "model": model_name},
-        total=len(video_ids),
-    )
+        job = JobQueue.create_job(
+            session=session,
+            job_type="summarize",
+            payload={
+                "channel_name": channel_name,
+                "video_ids": video_ids,
+                "model_name": model_name,
+                "reasoning_effort": reasoning_effort,
+            },
+            idempotency_key=idempotency_key,
+            initial_work_items=initial_work_items,
+        )
+        job_id = job.id
 
-    def run_summarize_v2():
-        session = SessionLocal()
-        processed_count = 0
-        try:
-            for vid in video_ids:
-                existing_folder = session.query(VideoFolder).filter_by(folder_name=channel_name, video_id=vid).first()
-                if not existing_folder:
-                    folder_assoc = VideoFolder(
-                        folder_name=channel_name,
-                        video_id=vid,
-                        last_modified=datetime.datetime.now(datetime.timezone.utc),  # noqa: UP017
-                    )
-                    session.add(folder_assoc)
-                    session.commit()
-
-                existing_summary = session.query(SummariesV2).filter_by(video_id=vid, model_name=model_name).first()
-                if existing_summary:
-                    logger.info("[SummariesV2] Skipping %s, summary already exists for model=%r.", vid, model_name)
-                    processed_count += 1
-                    task_store.update_task(task_id, processed=processed_count)
-                    continue
-
-                video_obj = session.query(Video).filter_by(video_id=vid).first()
-                if not video_obj:
-                    msg = f"Video {vid} not found in DB."
-                    logger.error(msg)
-                    task = task_store.get_task(task_id)
-                    err_list = ([*task.errors, msg]) if task else [msg]
-                    task_store.update_task(task_id, errors=err_list)
-                    processed_count += 1
-                    task_store.update_task(task_id, processed=processed_count)
-                    continue
-
-                transcript = video_obj.transcript_no_ts or ""
-                tokens_no_ts = int(video_obj.tokens_no_ts) if video_obj.tokens_no_ts else 0  # type: ignore[union-attr]
-                if tokens_no_ts <= 0:
-                    tokens_no_ts = len(transcript.split())
-
-                chunked_texts = (
-                    [transcript] if tokens_no_ts <= 4000 else chunk_transcript(transcript, max_words_per_chunk=4000)
-                )
-
-                all_concise, all_topics, all_takeaways, all_comprehensive = [], [], [], []
-
-                for chunk_str in chunked_texts:
-                    prompts = build_prompts_for_chunk(str(chunk_str))
-                    all_concise.append(
-                        vllm_generate_chunk(model_name, prompts["concise"], system_prompt=SYSTEM_PROMPT_SUMMARIZER)
-                    )
-                    all_topics.append(
-                        vllm_generate_chunk(model_name, prompts["key_topics"], system_prompt=SYSTEM_PROMPT_SUMMARIZER)
-                    )
-                    all_takeaways.append(
-                        vllm_generate_chunk(model_name, prompts["takeaways"], system_prompt=SYSTEM_PROMPT_SUMMARIZER)
-                    )
-                    all_comprehensive.append(
-                        vllm_generate_chunk(
-                            model_name, prompts["comprehensive"], system_prompt=SYSTEM_PROMPT_SUMMARIZER
-                        )
-                    )
-
-                new_summary = SummariesV2(
-                    video_id=vid,
-                    video_title=video_obj.title,
-                    model_name=model_name,
-                    date_generated=datetime.datetime.now(datetime.timezone.utc),  # noqa: UP017
-                    concise_summary="\n".join(all_concise).strip(),
-                    key_topics="\n".join(all_topics).strip(),
-                    important_takeaways="\n".join(all_takeaways).strip(),
-                    comprehensive_notes="\n".join(all_comprehensive).strip(),
-                )
-                try:
-                    session.add(new_summary)
-                    session.commit()
-                except IntegrityError:
-                    # A concurrent request inserted the same (video_id, model_name)
-                    # between our check and insert; the unique constraint caught it.
-                    session.rollback()
-                    logger.info(
-                        "[SummariesV2] Skipping %s, summary inserted concurrently for model=%r.",
-                        vid,
-                        model_name,
-                    )
-                    processed_count += 1
-                    task_store.update_task(task_id, processed=processed_count)
-                    continue
-
-                logger.info("[SummariesV2] Inserted for video=%s, model=%s", vid, model_name)
-                processed_count += 1
-                task_store.update_task(task_id, processed=processed_count)
-
-            task_store.update_task(task_id, status="completed")
-        except Exception as e:
-            logger.error("[SummariesV2] Error: %s", e)
-            task_store.update_task(task_id, status="failed", errors=[str(e)])
-        finally:
-            session.close()
-
-    thread = threading.Thread(target=run_summarize_v2, daemon=True)
-    thread.start()
-
-    return jsonify({"status": "initiated", "task_id": task_id})
+    return jsonify({"status": "initiated", "task_id": job_id})
 
 
 @api_bp.route("/summarize_v2/status/<task_id>", methods=["GET"])
 @require_role(["admin", "member"])
 def api_summarize_v2_status(task_id):
     """Returns progress for the SummariesV2 generation task."""
-    task = task_store.get_task(task_id)
-    if task:
-        return jsonify(task.to_dict())
-
-    # Fallback / Pipeline adapter: check JobQueue
     with SessionLocal() as session:
         progress = JobQueue.get_job_progress(session, task_id)
         if progress:
@@ -362,6 +236,11 @@ def api_summarize_v2_status(task_id):
                 }
             )
 
+    # Fallback check on legacy task_store if still in migration
+    task = task_store.get_task(task_id)
+    if task:
+        return jsonify(task.to_dict())
+
     return jsonify({"status": "error", "message": "Invalid task ID"}), 404
 
 
@@ -370,20 +249,26 @@ def api_summarize_v2_status(task_id):
 def api_active_tasks():
     """Return list of active (pending/running) tasks for the notification dropdown."""
     active = []
-    for task in task_store.list_tasks():
-        if task.status in ("pending", "in_progress"):
-            name_map = {"download": "Download", "summarize": "Summarize"}
+    with SessionLocal() as session:
+        jobs = session.scalars(
+            select(Job)
+            .where(Job.status.in_(["pending", "running", "paused"]))
+            .order_by(Job.created_at.desc())
+            .limit(50)
+        ).all()
+        for job in jobs:
+            name_map = {"channel_ingest": "Channel Ingest", "summarize": "Summarize"}
             active.append(
                 {
-                    "task_id": task.task_id,
-                    "task_type": task.task_type,
-                    "name": f"{name_map.get(task.task_type, task.task_type)}: {task.task_id}",
-                    "status": task.status,
-                    "processed": task.processed,
-                    "total": task.total,
-                    "errors": task.errors,
-                    "created_at": task.created_at,
-                    "updated_at": task.updated_at,
+                    "task_id": job.id,
+                    "task_type": job.job_type,
+                    "name": f"{name_map.get(job.job_type, job.job_type)}: {job.id[:8]}",
+                    "status": job.status,
+                    "processed": job.completed_items + job.failed_items,
+                    "total": job.total_items,
+                    "errors": [],
+                    "created_at": job.created_at.isoformat() if job.created_at else None,
+                    "updated_at": job.updated_at.isoformat() if job.updated_at else None,
                 }
             )
     return jsonify(active)
@@ -405,14 +290,41 @@ def api_list_channels():
 @api_bp.route("/transcript/<video_id>", methods=["GET"])
 @require_role(["admin", "member"])
 def api_get_transcript(video_id):
-    """Returns the transcript for a specific video."""
+    """Returns the full transcript and timestamped segments for a specific video."""
     session = SessionLocal()
     try:
         video = session.query(Video).filter_by(video_id=video_id).first()
         if not video:
             return jsonify({"status": "error", "message": "Video not found"}), 404
+
+        segments = session.scalars(
+            select(TranscriptSegment)
+            .where(TranscriptSegment.video_id == video_id)
+            .order_by(TranscriptSegment.segment_index.asc())
+        ).all()
+
+        segments_data = [
+            {
+                "segment_index": s.segment_index,
+                "start_seconds": s.start_seconds,
+                "end_seconds": s.end_seconds,
+                "speaker": s.speaker,
+                "text": s.text,
+                "youtube_url": f"https://www.youtube.com/watch?v={video_id}&t={int(s.start_seconds)}s",
+            }
+            for s in segments
+        ]
+
         transcript = video.transcript_no_ts or ""
-        return jsonify({"status": "ok", "video_id": video_id, "title": video.title or "", "transcript": transcript})
+        return jsonify(
+            {
+                "status": "ok",
+                "video_id": video_id,
+                "title": video.title or "",
+                "transcript": transcript,
+                "segments": segments_data,
+            }
+        )
     finally:
         session.close()
 
@@ -548,22 +460,87 @@ def api_delete_channel():
 
 
 @api_bp.route("/all-tasks", methods=["GET"])
+@require_role(["admin", "member"])
 def api_all_tasks():
+    """Return recent jobs with detailed item progress and failure reasons from PostgreSQL."""
     all_tasks = []
-    for task in task_store.list_tasks():
-        all_tasks.append(
-            {
-                "task_id": task.task_id,
-                "task_type": task.task_type,
-                "status": task.status,
-                "processed": task.processed,
-                "total": task.total,
-                "errors": task.errors,
-                "created_at": task.created_at,
-                "updated_at": task.updated_at,
-            }
-        )
+    with SessionLocal() as session:
+        jobs = session.scalars(select(Job).order_by(Job.created_at.desc()).limit(100)).all()
+        for job in jobs:
+            # Query work items to compile stage breakdowns and errors
+            items = session.scalars(select(WorkItem).where(WorkItem.job_id == job.id)).all()
+            errors = [f"Item {item.item_key} ({item.stage}): {item.last_error}" for item in items if item.last_error]
+            all_tasks.append(
+                {
+                    "task_id": job.id,
+                    "task_type": job.job_type,
+                    "status": job.status,
+                    "processed": job.completed_items + job.failed_items,
+                    "total": job.total_items,
+                    "errors": errors,
+                    "created_at": job.created_at.isoformat() if job.created_at else None,
+                    "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+                }
+            )
     return jsonify(all_tasks)
+
+
+@api_bp.route("/jobs/<job_id>/cancel", methods=["POST"])
+@require_role(["admin"])
+def api_cancel_job(job_id: str):
+    """Cancel an active or pending pipeline job."""
+    with SessionLocal() as session:
+        cancelled = JobQueue.cancel_job(session, job_id)
+        if not cancelled:
+            return jsonify({"status": "error", "message": "Job not found or already terminal"}), 400
+        return jsonify({"status": "ok", "job_id": job_id, "message": "Job cancelled successfully"})
+
+
+@api_bp.route("/jobs/<job_id>/retry", methods=["POST"])
+@require_role(["admin"])
+def api_retry_job(job_id: str):
+    """Retry failed work items in a job."""
+    with SessionLocal() as session:
+        retried_count = JobQueue.retry_failed_job(session, job_id)
+        return jsonify({"status": "ok", "job_id": job_id, "retried_items": retried_count})
+
+
+@api_bp.route("/admin/endpoints", methods=["GET"])
+@require_role(["admin"])
+def api_admin_list_endpoints():
+    """List registered AI inference endpoints."""
+    with SessionLocal() as session:
+        ModelRegistryService.bootstrap_from_env(session)
+        endpoints = ModelRegistryService.list_endpoints(session)
+        return jsonify({"endpoints": endpoints})
+
+
+@api_bp.route("/admin/models/probe", methods=["POST"])
+@require_role(["admin"])
+def api_admin_probe_models():
+    """Probe an endpoint URL to discover served model IDs."""
+    data = request.get_json() or {}
+    endpoint_url = data.get("endpoint_url")
+    if not endpoint_url:
+        return jsonify({"status": "error", "message": "endpoint_url required"}), 400
+    model_ids = ModelRegistryService.probe_endpoint_models(endpoint_url)
+    return jsonify({"status": "ok", "models": model_ids})
+
+
+@api_bp.route("/admin/models/qualify", methods=["POST"])
+@require_role(["admin"])
+def api_admin_qualify_model():
+    """Run real qualification capability probe for a model."""
+    data = request.get_json() or {}
+    model_id = data.get("model_id")
+    if not model_id:
+        return jsonify({"status": "error", "message": "model_id required"}), 400
+    with SessionLocal() as session:
+        try:
+            result = ModelRegistryService.run_qualification_test(session, model_id)
+            return jsonify({"status": "ok", "result": result})
+        except Exception as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
 
 
 @api_bp.route("/vllm/models", methods=["GET"])

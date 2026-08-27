@@ -38,3 +38,27 @@ class TestMdSafe:
 
         assert md_safe("") == ""
         assert md_safe(None) == ""  # type: ignore[arg-type]
+
+    def test_adversarial_svg_and_javascript_payloads(self):
+        """Adversarial SVG, event, and javascript protocol payloads are neutralized."""
+        from app import md_safe
+
+        payloads = [
+            "<svg onload=alert(1)>",
+            "<svg><script>alert(1)</script></svg>",
+            "<a href=\"javascript:alert('xss')\">Click</a>",
+            '<iframe src="http://evil.com"></iframe>',
+            '<style>body { background: url("http://evil.com"); }</style>',
+            '<div style="background-image: url(javascript:alert(1))">',
+            "<object data=\"data:text/html,<script>alert('xss')</script>\"></object>",
+            '<embed src="data:image/svg+xml,<svg onload=alert(1)></svg>">',
+        ]
+        for p in payloads:
+            res = md_safe(p)
+            assert "<script" not in res
+            assert "<svg" not in res
+            assert "<iframe" not in res
+            assert "<object" not in res
+            assert "<embed" not in res
+            assert "<style" not in res
+            assert "<div" not in res

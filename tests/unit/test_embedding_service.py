@@ -48,13 +48,22 @@ class TestEmbeddingService:
         assert h1 != h3
 
     def test_pack_embedding_batch_limits(self):
-        # 50 short strings
-        texts = [f"Text sequence number {i}" for i in range(50)]
-        batches = pack_embedding_batch(texts, max_batch_size=32, max_tokens=8192)
+        # 20 short strings with default Nemo limit of 8
+        texts = [f"Text sequence number {i}" for i in range(20)]
+        batches = pack_embedding_batch(texts)
 
-        assert len(batches) == 2
-        assert len(batches[0]) == 32
-        assert len(batches[1]) == 18
+        assert len(batches) == 3
+        assert len(batches[0]) == 8
+        assert len(batches[1]) == 8
+        assert len(batches[2]) == 4
+
+    def test_pack_embedding_batch_oversize_split(self):
+        # One huge string that exceeds 8192 tokens
+        huge_text = ("word " * 10000).strip()
+        batches = pack_embedding_batch([huge_text], max_tokens=1000)
+        assert len(batches) >= 5
+        for b in batches:
+            assert len(b) <= 8
 
     @patch("httpx.Client.post")
     def test_embed_texts_prefixing_and_validation(self, mock_post):

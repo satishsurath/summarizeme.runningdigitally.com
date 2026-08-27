@@ -194,13 +194,15 @@ export async function summarizeVideos(
   channelName: string,
   videoIds: string[],
   model?: string,
+  reasoningEffort?: string,
 ): Promise<ApiResponse<null>> {
   return fetchJson<ApiResponse<null>>(apiPath("/api/summarize_v2"), {
     method: "POST",
     body: JSON.stringify({
       channel_name: channelName,
       video_ids: videoIds,
-      model: model ?? "nemo-qwen3.6-35b-a3b-nvfp4",
+      model_name: model ?? "nemo-qwen3.8-27b-nvfp4",
+      reasoning_effort: reasoningEffort ?? "medium",
     }),
   });
 }
@@ -244,6 +246,121 @@ export async function chatChannel(
   );
 }
 
+export interface SourceReference {
+  video_id: string;
+  chunk_type: string;
+  start_seconds?: number;
+  end_seconds?: number;
+  speaker?: string;
+  excerpt: string;
+  score?: number;
+  youtube_url: string;
+}
+
+export interface ModelInfo {
+  id?: string;
+  model_id: string;
+  display_name: string;
+  family: string;
+  context_window: number;
+  is_default: boolean;
+  qualification_status?: string;
+}
+
+export interface UserPreference {
+  user_id: string;
+  preferred_gen_model: string;
+  preferred_reasoning_effort: string;
+}
+
+export interface TranscriptSegment {
+  segment_index: number;
+  start_seconds: number;
+  end_seconds: number;
+  speaker?: string;
+  text: string;
+  youtube_url: string;
+}
+
+export interface TranscriptResponse {
+  status: string;
+  video_id: string;
+  title: string;
+  transcript: string;
+  segments?: TranscriptSegment[];
+}
+
+export interface ConversationMeta {
+  id: string;
+  title: string;
+  scope_type: string;
+  scope_id: string;
+}
+
+export interface ConversationMessageItem {
+  id: number;
+  role: string;
+  content: string;
+  reasoning_content?: string;
+  sources?: SourceReference[];
+  created_at: string;
+}
+
+export interface ConversationDetail {
+  id: string;
+  title: string;
+  scope_type: string;
+  scope_id: string;
+  model_name: string;
+  reasoning_effort: string;
+  messages: ConversationMessageItem[];
+}
+
+export async function listModels(): Promise<{ models: ModelInfo[] }> {
+  return fetchJson<{ models: ModelInfo[] }>(apiPath("/api/models"));
+}
+
+export async function getUserPreference(): Promise<UserPreference> {
+  return fetchJson<UserPreference>(apiPath("/api/user/preference"));
+}
+
+export async function setUserPreference(
+  modelName: string,
+  reasoningEffort: string,
+): Promise<UserPreference> {
+  return fetchJson<UserPreference>(apiPath("/api/user/preference"), {
+    method: "POST",
+    body: JSON.stringify({
+      model_name: modelName,
+      reasoning_effort: reasoningEffort,
+    }),
+  });
+}
+
+export async function listConversations(): Promise<ConversationMeta[]> {
+  return fetchJson<ConversationMeta[]>(apiPath("/api/conversations"));
+}
+
+export async function getConversation(convId: string): Promise<ConversationDetail> {
+  return fetchJson<ConversationDetail>(apiPath(`/api/conversations/${convId}`));
+}
+
+export async function deleteConversation(convId: string): Promise<void> {
+  await fetchJson(apiPath(`/api/conversations/${convId}`), { method: "DELETE" });
+}
+
+export async function cancelJob(jobId: string): Promise<void> {
+  await fetchJson(apiPath(`/api/jobs/${encodeURIComponent(jobId)}/cancel`), {
+    method: "POST",
+  });
+}
+
+export async function retryJob(jobId: string): Promise<void> {
+  await fetchJson(apiPath(`/api/jobs/${encodeURIComponent(jobId)}/retry`), {
+    method: "POST",
+  });
+}
+
 export async function chatVideo(
   videoId: string,
   query: string,
@@ -254,8 +371,8 @@ export async function chatVideo(
     method: "POST",
     body: JSON.stringify({
       query,
-      data_type: dataType ?? "comprehensive_notes",
-      model_name: modelName ?? "nemo-qwen3.6-35b-a3b-nvfp4",
+      data_type: dataType ?? "automatic",
+      model_name: modelName ?? "nemo-qwen3.8-27b-nvfp4",
     }),
   });
 }
@@ -272,13 +389,6 @@ export async function healthCheck(): Promise<{ status: string }> {
 // Transcript
 // ---------------------------------------------------------------------------
 
-export interface TranscriptResponse {
-  status: string;
-  video_id: string;
-  title: string;
-  transcript: string;
-}
-
 export async function getTranscript(videoId: string): Promise<TranscriptResponse> {
   return fetchJson<TranscriptResponse>(
     apiPath(`/api/transcript/${encodeURIComponent(videoId)}`),
@@ -290,8 +400,11 @@ export async function getTranscript(videoId: string): Promise<TranscriptResponse
 // ---------------------------------------------------------------------------
 
 export interface ChatStreamCallbacks {
-  onDelta: (delta: string) => void;
-  onDone: (answer: string) => void;
+  onReasoningDelta?: (delta: string) => void;
+  onAnswerDelta: (delta: string) => void;
+  onSources?: (sources: SourceReference[]) => void;
+  onUsage?: (usage: { prompt_tokens: number; completion_tokens: number; reasoning_tokens?: number }) => void;
+  onDone: (data: { answer: string; conversation_id?: string; thinking?: string }) => void;
   onError: (error: string) => void;
 }
 
@@ -315,7 +428,6 @@ async function parseSSEStream(
       for (const rawLine of lines) {
         const line = rawLine.trimEnd();
         if (!line) {
-          // Empty line indicates end of an SSE event frame: reset default event
           currentEvent = "message";
           continue;
         }
@@ -330,16 +442,26 @@ async function parseSSEStream(
             const data = JSON.parse(line.slice(6));
             if (currentEvent === "loading") {
               // Loading event acknowledgment
+            } else if (currentEvent === "sources") {
+              callbacks.onSources?.(data.sources || []);
+            } else if (currentEvent === "reasoning_delta") {
+              callbacks.onReasoningDelta?.(data.content || "");
+            } else if (currentEvent === "answer_delta") {
+              callbacks.onAnswerDelta(data.content || "");
+            } else if (currentEvent === "usage") {
+              callbacks.onUsage?.(data);
             } else if (currentEvent === "error") {
               callbacks.onError(data.error || "Unknown error");
             } else if (data.error) {
               callbacks.onError(data.error);
             } else if (data.delta) {
-              callbacks.onDelta(data.delta);
+              callbacks.onAnswerDelta(data.delta);
             } else if (data.answer && (data.done || currentEvent === "done")) {
-              // Terminal frame: either the normal final frame (done: true) or an
-              // explicit "done" event (e.g. no relevant content found).
-              callbacks.onDone(data.answer);
+              callbacks.onDone({
+                answer: data.answer,
+                conversation_id: data.conversation_id,
+                thinking: data.thinking,
+              });
             }
           } catch {
             // skip malformed JSON
@@ -358,9 +480,11 @@ export async function chatChannelStream(
   dataType: string,
   modelName: string,
   callbacks: ChatStreamCallbacks,
+  conversationId?: string,
+  reasoningEffort?: string,
 ): Promise<void> {
   const response = await fetch(
-    apiPath(`/api/chat-channel/${channelName}/stream`),
+    apiPath(`/api/chat-channel/${encodeURIComponent(channelName)}/stream`),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -368,6 +492,8 @@ export async function chatChannelStream(
         query,
         data_type: dataType,
         model_name: modelName,
+        conversation_id: conversationId,
+        reasoning_effort: reasoningEffort ?? "medium",
       }),
     },
   );
@@ -392,9 +518,11 @@ export async function chatVideoStream(
   dataType: string,
   modelName: string,
   callbacks: ChatStreamCallbacks,
+  conversationId?: string,
+  reasoningEffort?: string,
 ): Promise<void> {
   const response = await fetch(
-    apiPath(`/api/chat-video/${videoId}/stream`),
+    apiPath(`/api/chat-video/${encodeURIComponent(videoId)}/stream`),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -402,6 +530,8 @@ export async function chatVideoStream(
         query,
         data_type: dataType,
         model_name: modelName,
+        conversation_id: conversationId,
+        reasoning_effort: reasoningEffort ?? "medium",
       }),
     },
   );

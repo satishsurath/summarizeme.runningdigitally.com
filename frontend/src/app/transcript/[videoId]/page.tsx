@@ -1,14 +1,20 @@
-/**
- * Transcript page — searchable, timestamped transcript.
- * Replaces templates/transcript.html
- */
-
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getTranscript } from "@/lib/api";
+import { getTranscript, type TranscriptSegment } from "@/lib/api";
+
+function formatSeconds(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) {
+    const remM = m % 60;
+    return `${h}:${remM.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  }
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 // ---------------------------------------------------------------------------
 // Icons (inline SVGs)
@@ -42,6 +48,14 @@ function CopyIcon({ className }: { className?: string }) {
   );
 }
 
+function PlayIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -50,6 +64,7 @@ export default function TranscriptPage() {
   const params = useParams();
   const videoId = params.videoId as string;
   const [transcript, setTranscript] = useState("");
+  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -61,37 +76,48 @@ export default function TranscriptPage() {
         if (res.status === "ok") {
           setTitle(res.title);
           setTranscript(res.transcript);
+          if (res.segments && res.segments.length > 0) {
+            setSegments(res.segments);
+          }
         }
       })
       .catch(() => { /* silent */ })
       .finally(() => setLoading(false));
   }, [videoId]);
 
-  // The backend only provides transcript_no_ts (no timing data), so segments
-  // are plain text chunks used for search — no timestamps are shown or exported.
-  const segments = useMemo(() => {
+  // Fallback chunking if no fine-grained segments in DB
+  const displaySegments: TranscriptSegment[] = useMemo(() => {
+    if (segments.length > 0) return segments;
     if (!transcript) return [];
-    const chunks: string[] = [];
-    const maxChunkSize = 3000;
+    const chunks: TranscriptSegment[] = [];
+    const maxChunkSize = 2500;
     let offset = 0;
+    let idx = 0;
     while (offset < transcript.length) {
       const end = Math.min(offset + maxChunkSize, transcript.length);
       let breakPoint = transcript.lastIndexOf(". ", end);
       if (breakPoint < offset) breakPoint = end;
       else breakPoint += 2;
       const text = transcript.slice(offset, breakPoint).trim();
-      if (text) chunks.push(text);
+      if (text) {
+        chunks.push({
+          segment_index: idx++,
+          start_seconds: 0,
+          end_seconds: 0,
+          text,
+          youtube_url: `https://www.youtube.com/watch?v=${videoId}`,
+        });
+      }
       offset = breakPoint;
     }
     return chunks;
-  }, [transcript]);
-
+  }, [segments, transcript, videoId]);
 
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return segments;
+    if (!searchQuery.trim()) return displaySegments;
     const q = searchQuery.toLowerCase();
-    return segments.filter((s) => s.toLowerCase().includes(q));
-  }, [searchQuery, segments]);
+    return displaySegments.filter((s) => s.text.toLowerCase().includes(q) || (s.speaker && s.speaker.toLowerCase().includes(q)));
+  }, [searchQuery, displaySegments]);
 
   const handleCopy = async () => {
     try {
@@ -115,14 +141,14 @@ export default function TranscriptPage() {
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+      <div className="max-w-5xl mx-auto px-4 py-8 text-center text-gray-500 dark:text-gray-400">
         Loading transcript...
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-5xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <Link
@@ -149,9 +175,14 @@ export default function TranscriptPage() {
         </div>
       </div>
 
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
-        {title || "Transcript"}
-      </h1>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          {title || "Transcript"}
+        </h1>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          {segments.length > 0 ? `${segments.length} timestamped segments` : "Full raw transcript"} · Video ID: {videoId}
+        </p>
+      </div>
 
       {/* Search */}
       <div className="relative mb-6">
@@ -160,7 +191,7 @@ export default function TranscriptPage() {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search transcript..."
+          placeholder="Search transcript by keywords, timestamps, or speaker..."
           className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
         {searchQuery && (
@@ -176,34 +207,56 @@ export default function TranscriptPage() {
       {/* Results count */}
       {searchQuery && (
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-          {filtered.length} of {segments.length} segments match
+          {filtered.length} of {displaySegments.length} segments match
         </p>
       )}
 
-      {/* Segments */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg divide-y divide-gray-200 dark:divide-gray-700">
-        {filtered.map((segment, index) => (
-          <div key={index} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-              {searchQuery ? (
-                <span>
-                  {segment.split(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")).map((part, i) =>
-                    part.toLowerCase() === searchQuery.toLowerCase() ? (
-                      <mark key={i} className="bg-yellow-200 dark:bg-yellow-700 rounded px-0.5">{part}</mark>
-                    ) : (
-                      part
-                    )
-                  )}
+      {/* Segments list */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700/60">
+        {filtered.map((segment) => (
+          <div key={segment.segment_index} className="p-4 sm:p-5 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors flex flex-col sm:flex-row gap-3 sm:gap-4 items-start">
+            {segment.start_seconds > 0 || segments.length > 0 ? (
+              <div className="shrink-0 flex items-center gap-1.5">
+                <a
+                  href={segment.youtube_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-mono font-semibold hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
+                  title="Jump to video timestamp on YouTube"
+                >
+                  <PlayIcon className="w-2.5 h-2.5" />
+                  {formatSeconds(segment.start_seconds)}
+                </a>
+              </div>
+            ) : null}
+
+            <div className="flex-1 min-w-0">
+              {segment.speaker && (
+                <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-purple-600 dark:text-purple-400 mb-1 mr-2">
+                  [{segment.speaker}]
                 </span>
-              ) : (
-                segment
               )}
-            </p>
+              <p className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed font-sans">
+                {searchQuery ? (
+                  <span>
+                    {segment.text.split(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")).map((part, i) =>
+                      part.toLowerCase() === searchQuery.toLowerCase() ? (
+                        <mark key={i} className="bg-yellow-200 dark:bg-yellow-700 text-gray-900 dark:text-white rounded px-0.5">{part}</mark>
+                      ) : (
+                        part
+                      )
+                    )}
+                  </span>
+                ) : (
+                  segment.text
+                )}
+              </p>
+            </div>
           </div>
         ))}
         {filtered.length === 0 && (
-          <div className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-            No matches found.
+          <div className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+            No matches found for &quot;{searchQuery}&quot;.
           </div>
         )}
       </div>

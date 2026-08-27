@@ -33,6 +33,7 @@ from app_config import (
 from auth_utils import get_current_user
 from db.models import (
     Conversation,
+    ConversationMessage,
     Video,
     VideoFolder,
     utcnow,
@@ -541,11 +542,30 @@ def api_chat_channel_stream(channel_name):
         yield 'event: loading\ndata: {"status":"processing"}\n\n'
         sys.stdout.flush()
 
+        # Emit structured sources event
+        sources_payload = [
+            {
+                "video_id": c.get("video_id"),
+                "chunk_type": c.get("chunk_type"),
+                "start_seconds": c.get("start_seconds"),
+                "end_seconds": c.get("end_seconds"),
+                "speaker": c.get("speaker"),
+                "excerpt": c.get("text", "")[:200],
+                "score": c.get("score", 0.0),
+                "youtube_url": (
+                    f"https://www.youtube.com/watch?v={c.get('video_id')}&t={int(c.get('start_seconds', 0))}s"
+                ),
+            }
+            for c in (retrieved_chunks or [])
+        ]
+        if sources_payload:
+            yield f"event: sources\ndata: {json.dumps({'sources': sources_payload})}\n\n"
+            sys.stdout.flush()
+
         has_content = bool(retrieved_chunks) or bool(chunk_rows)
         if not has_content:
             no_content = (
-                "No relevant content found for this channel and data type. "
-                "Try selecting 'Transcript' or generate summaries first."
+                "No relevant content found for this channel and data type. Try selecting 'Automatic' or 'Transcript'."
             )
             yield f"event: done\ndata: {json.dumps({'answer': no_content, 'done': True})}\n\n"
             return
@@ -578,9 +598,19 @@ def api_chat_channel_stream(channel_name):
             prompt_str = build_chat_prompt(context_for_generation, user_query)
 
             full_answer = ""
+            in_think = False
             for delta, _ in vllm_generate_stream(model_name, prompt_str, system_prompt=SYSTEM_PROMPT_RAG):
                 if delta:
                     full_answer += delta
+                    if "<think>" in delta:
+                        in_think = True
+                    if "</think>" in delta:
+                        in_think = False
+
+                    event_type = "reasoning_delta" if in_think else "answer_delta"
+                    # Emit typed SSE frame
+                    yield f"event: {event_type}\ndata: {json.dumps({'content': delta})}\n\n"
+                    # Emit legacy backward-compatible delta
                     yield f"data: {json.dumps({'delta': delta})}\n\n"
                     sys.stdout.flush()
 
@@ -592,7 +622,52 @@ def api_chat_channel_stream(channel_name):
             if thinking:
                 safe_thinking = _html_escape(thinking)
                 answer_html = f"<think>{safe_thinking}</think>\n\n{answer_html}"
-            yield f"data: {json.dumps({'answer': answer_html, 'done': True})}\n\n"
+
+            # Persist conversation and messages
+            conv_id = data.get("conversation_id")
+            if not conv_id:
+                conv = Conversation(
+                    id=str(uuid.uuid4()),
+                    user_id=user_email,
+                    scope_type="channel",
+                    scope_id=channel_name,
+                    title=user_query[:50],
+                    model_name=model_name,
+                    reasoning_effort=data.get("reasoning_effort", "medium"),
+                    created_at=utcnow(),
+                    updated_at=utcnow(),
+                )
+                gen_session.add(conv)
+                conv_id = conv.id
+            else:
+                conv = gen_session.get(Conversation, conv_id)
+                if conv:
+                    conv.updated_at = utcnow()
+
+            user_msg = ConversationMessage(
+                conversation_id=conv_id,
+                role="user",
+                content=user_query,
+                created_at=utcnow(),
+            )
+            asst_msg = ConversationMessage(
+                conversation_id=conv_id,
+                role="assistant",
+                content=main_answer,
+                reasoning_content=thinking,
+                sources=sources_payload if sources_payload else None,
+                created_at=utcnow(),
+            )
+            gen_session.add_all([user_msg, asst_msg])
+            gen_session.commit()
+
+            done_payload = {
+                "answer": answer_html,
+                "conversation_id": conv_id,
+                "thinking": thinking,
+                "done": True,
+            }
+            yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
         except Exception as e:
             logger.exception("Error during chat-channel stream generation:")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
@@ -614,7 +689,7 @@ def api_chat_video_stream(video_id):
     """SSE streaming endpoint for chat-video queries."""
     data = request.json or {}
     user_query = data.get("query", "").strip()
-    data_type = data.get("data_type", "comprehensive_notes")
+    data_type = data.get("data_type", "automatic")
     user_info = get_current_user()
     user_email = str(user_info[0]) if isinstance(user_info, tuple) and user_info[0] else "dev@localhost"
 
@@ -630,20 +705,6 @@ def api_chat_video_stream(video_id):
             yield 'event: error\ndata: {"error":"No query provided."}\n\n'
 
         return Response(stream_with_context(_err_vid_no_query()), content_type="text/event-stream", headers=headers)
-
-    valid_data_types = {
-        "comprehensive_notes",
-        "concise_summary",
-        "key_topics",
-        "important_takeaways",
-        "transcript",
-    }
-    if data_type and data_type not in valid_data_types:
-
-        def _err_vid_invalid():
-            yield 'event: error\ndata: {"error":"Invalid data type."}\n\n'
-
-        return Response(stream_with_context(_err_vid_invalid()), content_type="text/event-stream", headers=headers)
 
     session = SessionLocal()
     chunk_rows = []
@@ -707,11 +768,28 @@ def api_chat_video_stream(video_id):
         yield 'event: loading\ndata: {"status":"processing"}\n\n'
         sys.stdout.flush()
 
+        # Emit structured sources event
+        sources_payload = [
+            {
+                "video_id": c.get("video_id"),
+                "chunk_type": c.get("chunk_type"),
+                "start_seconds": c.get("start_seconds"),
+                "end_seconds": c.get("end_seconds"),
+                "speaker": c.get("speaker"),
+                "excerpt": c.get("text", "")[:200],
+                "score": c.get("score", 0.0),
+                "youtube_url": f"https://www.youtube.com/watch?v={video_id}&t={int(c.get('start_seconds', 0))}s",
+            }
+            for c in (retrieved_chunks or [])
+        ]
+        if sources_payload:
+            yield f"event: sources\ndata: {json.dumps({'sources': sources_payload})}\n\n"
+            sys.stdout.flush()
+
         has_context = bool(retrieved_chunks) or bool(chunk_rows) or bool(full_transcript)
         if not has_context:
             no_content = (
-                "No relevant content found for this video and data type. "
-                "Try selecting 'Transcript' or generate summaries first."
+                "No relevant content found for this video and data type. Try selecting 'Automatic' or 'Transcript'."
             )
             yield f"event: done\ndata: {json.dumps({'answer': no_content, 'done': True})}\n\n"
             return
@@ -740,9 +818,17 @@ def api_chat_video_stream(video_id):
             prompt_text = build_chat_prompt(context_for_generation, user_query)
 
             full_answer = ""
+            in_think = False
             for delta, _ in vllm_generate_stream(model_name, prompt_text, system_prompt=SYSTEM_PROMPT_RAG):
                 if delta:
                     full_answer += delta
+                    if "<think>" in delta:
+                        in_think = True
+                    if "</think>" in delta:
+                        in_think = False
+
+                    event_type = "reasoning_delta" if in_think else "answer_delta"
+                    yield f"event: {event_type}\ndata: {json.dumps({'content': delta})}\n\n"
                     yield f"data: {json.dumps({'delta': delta})}\n\n"
                     sys.stdout.flush()
 
@@ -751,7 +837,52 @@ def api_chat_video_stream(video_id):
             if thinking:
                 safe_thinking = _html_escape(thinking)
                 answer_html = f"<think>{safe_thinking}</think>\n\n{answer_html}"
-            yield f"data: {json.dumps({'answer': answer_html, 'done': True})}\n\n"
+
+            # Persist conversation
+            conv_id = data.get("conversation_id")
+            if not conv_id:
+                conv = Conversation(
+                    id=str(uuid.uuid4()),
+                    user_id=user_email,
+                    scope_type="video",
+                    scope_id=video_id,
+                    title=user_query[:50],
+                    model_name=model_name,
+                    reasoning_effort=data.get("reasoning_effort", "medium"),
+                    created_at=utcnow(),
+                    updated_at=utcnow(),
+                )
+                gen_session.add(conv)
+                conv_id = conv.id
+            else:
+                conv = gen_session.get(Conversation, conv_id)
+                if conv:
+                    conv.updated_at = utcnow()
+
+            user_msg = ConversationMessage(
+                conversation_id=conv_id,
+                role="user",
+                content=user_query,
+                created_at=utcnow(),
+            )
+            asst_msg = ConversationMessage(
+                conversation_id=conv_id,
+                role="assistant",
+                content=main_answer,
+                reasoning_content=thinking,
+                sources=sources_payload if sources_payload else None,
+                created_at=utcnow(),
+            )
+            gen_session.add_all([user_msg, asst_msg])
+            gen_session.commit()
+
+            done_payload = {
+                "answer": answer_html,
+                "conversation_id": conv_id,
+                "thinking": thinking,
+                "done": True,
+            }
+            yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
         except Exception as e:
             logger.exception("Error during chat-video stream generation:")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
@@ -803,4 +934,50 @@ def api_conversations():
         ).all()
         return jsonify(
             [{"id": c.id, "title": c.title, "scope_type": c.scope_type, "scope_id": c.scope_id} for c in convs]
+        )
+
+
+@chat_bp.route("/api/conversations/<conversation_id>", methods=["GET", "DELETE"])
+@require_role(["admin", "member"])
+def api_conversation_detail(conversation_id: str):
+    """Fetch messages in a conversation or delete the conversation session."""
+    user_info = get_current_user()
+    user_email = str(user_info[0]) if isinstance(user_info, tuple) and user_info[0] else "dev@localhost"
+
+    with SessionLocal() as session:
+        conv = session.get(Conversation, conversation_id)
+        if not conv or conv.user_id != user_email:
+            return jsonify({"status": "error", "message": "Conversation not found"}), 404
+
+        if request.method == "DELETE":
+            session.delete(conv)
+            session.commit()
+            return jsonify({"status": "ok", "message": "Conversation deleted"})
+
+        messages = session.scalars(
+            select(ConversationMessage)
+            .where(ConversationMessage.conversation_id == conversation_id)
+            .order_by(ConversationMessage.created_at.asc())
+        ).all()
+
+        return jsonify(
+            {
+                "id": conv.id,
+                "title": conv.title,
+                "scope_type": conv.scope_type,
+                "scope_id": conv.scope_id,
+                "model_name": conv.model_name,
+                "reasoning_effort": conv.reasoning_effort,
+                "messages": [
+                    {
+                        "id": m.id,
+                        "role": m.role,
+                        "content": m.content,
+                        "reasoning_content": m.reasoning_content,
+                        "sources": m.sources,
+                        "created_at": m.created_at.isoformat() if m.created_at else None,
+                    }
+                    for m in messages
+                ],
+            }
         )

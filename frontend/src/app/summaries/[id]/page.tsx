@@ -10,6 +10,8 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { getTranscript } from "@/lib/api";
+import { SummaryViewer } from "@/components/SummaryViewer";
+import type { StructuredSummaryV3 } from "@/types/summary";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -58,7 +60,7 @@ function ChevronDownIcon({ className }: { className?: string }) {
 // ---------------------------------------------------------------------------
 
 interface SummaryData {
-  id: number;
+  id: number | string;
   video_id: string;
   video_title: string;
   model_name: string;
@@ -67,6 +69,8 @@ interface SummaryData {
   key_topics: string;
   important_takeaways: string;
   comprehensive_notes: string;
+  structured_summary?: StructuredSummaryV3 | null;
+  reasoning_output?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +85,7 @@ export default function SummaryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("summary");
+  const [viewMode, setViewMode] = useState<"structured" | "tabs">("structured");
   const [copied, setCopied] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<string | null>(null);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
@@ -197,7 +202,7 @@ export default function SummaryPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -215,6 +220,32 @@ export default function SummaryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {summary.structured_summary && (
+            <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800 text-xs font-medium mr-2">
+              <button
+                type="button"
+                onClick={() => setViewMode("structured")}
+                className={`px-3 py-1.5 rounded-md transition-colors ${
+                  viewMode === "structured"
+                    ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs font-semibold"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                }`}
+              >
+                9-Section Architecture
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("tabs")}
+                className={`px-3 py-1.5 rounded-md transition-colors ${
+                  viewMode === "tabs"
+                    ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs font-semibold"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                }`}
+              >
+                Classic Tabs
+              </button>
+            </div>
+          )}
           <button
             onClick={() => copyContent(activeTabData.content)}
             className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-blue-500 transition-colors"
@@ -239,33 +270,44 @@ export default function SummaryPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 px-4 py-2.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
-              activeTab === tab.id
-                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            }`}
-          >
-            {tab.icon} {tab.label}
-          </button>
-        ))}
-      </div>
+      {summary.structured_summary && viewMode === "structured" ? (
+        <SummaryViewer
+          summary={summary.structured_summary}
+          title={summary.video_title}
+          videoId={summary.video_id}
+          reasoningContent={summary.reasoning_output}
+        />
+      ) : (
+        <>
+          {/* Tabs */}
+          <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg overflow-x-auto">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 px-4 py-2.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                }`}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
 
-      {/* Content */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-        <div className="prose dark:prose-invert max-w-none">
-          {activeTabData.content ? (
-            <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(activeTabData.content) }} />
-          ) : (
-            <p className="text-gray-500 dark:text-gray-400 italic">No content available.</p>
-          )}
-        </div>
-      </div>
+          {/* Content */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <div className="prose dark:prose-invert max-w-none">
+              {activeTabData.content ? (
+                <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(activeTabData.content) }} />
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400 italic">No content available.</p>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Transcript quick view */}
       <details className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">

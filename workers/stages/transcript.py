@@ -46,7 +46,23 @@ def handle_transcript(payload: dict[str, Any], session: Session) -> dict[str, An
         logger.info("Rate-pacing YouTube request for %s: sleeping for %.2fs", video_id, sleep_sec)
         time.sleep(sleep_sec)
 
-    # 2. Fetch transcript segments
+    # 2. Acquire YouTube concurrency lease (max in-flight limit enforcement)
+    yt_lease_id = None
+    max_wait = 60.0
+    start_wait = time.time()
+    while not yt_lease_id and (time.time() - start_wait < max_wait):
+        yt_lease_id = ResourceAdmission.acquire_lease(
+            session=session,
+            resource_class="youtube",
+            owner=f"transcript-{video_id}",
+            lease_seconds=180,
+        )
+        if not yt_lease_id:
+            time.sleep(1.0)
+
+    if not yt_lease_id:
+        raise RuntimeError(f"Could not acquire YouTube concurrency lease for {video_id} within timeout")
+
     try:
         segments = YouTubeAcquisitionService.fetch_video_transcript(video_id)
     except Exception as exc:
@@ -55,6 +71,8 @@ def handle_transcript(payload: dict[str, Any], session: Session) -> dict[str, An
             logger.warning("YouTube 429 throttling detected for video %s. Tripping circuit breaker.", video_id)
             ResourceAdmission.open_circuit(session, provider_key="youtube", backoff_seconds=60, error_code="HTTP_429")
         raise
+    finally:
+        ResourceAdmission.release_lease(session, yt_lease_id, owner=f"transcript-{video_id}")
 
     if not segments:
         logger.warning("No transcript segments returned for video %s ('%s').", video_id, title)

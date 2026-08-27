@@ -71,7 +71,7 @@ class TestQualityCorpusBenchmark:
 
             transcript_text = " ".join([s.text for s in segments])
 
-            summary_v3, thinking, metrics = SummaryService.generate_structured_summary(
+            summary_v3, thinking, metrics, _errors = SummaryService.generate_structured_summary(
                 transcript_text=transcript_text,
                 video_title=video.title or "Evaluation Benchmark",
                 reasoning_effort=level,

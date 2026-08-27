@@ -455,3 +455,63 @@ class JobQueue:
                 job.completed_items,
                 job.failed_items,
             )
+
+    @staticmethod
+    def cancel_job(session: Session, job_id: str) -> bool:
+        """Cancel a pending or running job and mark active work items as cancelled."""
+        job = session.get(Job, job_id)
+        if not job or job.status in ("completed", "cancelled", "failed"):
+            return False
+
+        now = utcnow()
+        job.status = "cancelled"
+        job.completed_at = now
+        job.updated_at = now
+
+        items = session.scalars(
+            select(WorkItem).where(
+                WorkItem.job_id == job_id,
+                WorkItem.status.in_(["pending", "leased", "retry"]),
+            )
+        ).all()
+        for item in items:
+            item.status = "cancelled"
+            item.updated_at = now
+
+        session.commit()
+        logger.info("Cancelled job %s and %d active work items", job_id, len(items))
+        return True
+
+    @staticmethod
+    def retry_failed_job(session: Session, job_id: str) -> int:
+        """Reset failed work items in a job back to pending status."""
+        job = session.get(Job, job_id)
+        if not job:
+            return 0
+
+        now = utcnow()
+        failed_items = session.scalars(
+            select(WorkItem).where(
+                WorkItem.job_id == job_id,
+                WorkItem.status.in_(["failed", "dead_letter"]),
+            )
+        ).all()
+
+        retried_count = 0
+        for item in failed_items:
+            item.status = "pending"
+            item.attempt_count = 0
+            item.last_error = None
+            item.available_at = now
+            item.updated_at = now
+            retried_count += 1
+
+        if retried_count > 0:
+            job.failed_items = max(0, job.failed_items - retried_count)
+            job.status = "pending"
+            job.completed_at = None
+            job.updated_at = now
+            session.commit()
+            logger.info("Retried %d failed work items for job %s", retried_count, job_id)
+
+        return retried_count

@@ -156,6 +156,27 @@ class ResourceAdmission:
         return released
 
     @staticmethod
+    def renew_lease(
+        session: Session,
+        lease_id: str,
+        owner: str | None = None,
+        lease_seconds: int = 300,
+    ) -> bool:
+        """Renew the expiration of an active resource lease (heartbeat)."""
+        now = utcnow()
+        lease = session.get(ResourceLease, lease_id)
+        if not lease or (owner and lease.owner != owner):
+            return False
+        expiry = ensure_utc(lease.expires_at)
+        if not expiry or expiry <= now:
+            return False
+
+        lease.expires_at = now + datetime.timedelta(seconds=lease_seconds)
+        session.commit()
+        logger.debug("Renewed lease %s for %s (+%ds)", lease_id, owner, lease_seconds)
+        return True
+
+    @staticmethod
     def reserve_external_start(
         session: Session,
         provider_key: str = "youtube",

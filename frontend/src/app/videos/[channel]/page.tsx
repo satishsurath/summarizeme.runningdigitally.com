@@ -5,11 +5,20 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
-import { listVideos, summarizeVideos, getTaskStatus } from "@/lib/api";
-import type { Video } from "@/lib/api";
+import {
+  listVideos,
+  summarizeVideos,
+  getTaskStatus,
+  listModels,
+  cancelJob,
+  retryJob,
+  type Video,
+  type ModelInfo,
+  type TaskStatus,
+} from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -110,6 +119,8 @@ function VideoRow({
   onViewSummary: (id: number) => void;
   onViewTranscript: (id: string) => void;
 }) {
+  const hasSummary = video.summaries_v2 && video.summaries_v2.length > 0;
+
   return (
     <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
       <td className="px-4 py-3">
@@ -117,64 +128,65 @@ function VideoRow({
           type="checkbox"
           checked={selected}
           onChange={() => onToggle(video.video_id)}
-          className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500"
+          className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
         />
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           <Image
-            src={`https://img.youtube.com/vi/${video.video_id}/mqdefault.jpg`}
-            alt=""
-            width={320}
-            height={180}
-            className="w-16 h-9 rounded object-cover flex-shrink-0"
-            loading="lazy"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = "none";
-            }}
+            src={`https://i.ytimg.com/vi/${video.video_id}/mqdefault.jpg`}
+            alt={video.title}
+            width={80}
+            height={45}
+            className="rounded object-cover shrink-0"
+            unoptimized
           />
-          <span className="text-sm text-gray-900 dark:text-gray-100 truncate max-w-md">
-            {video.title}
-          </span>
+          <div>
+            <span className="text-gray-900 dark:text-gray-100 font-medium line-clamp-2 text-sm">
+              {video.title}
+            </span>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {video.upload_date || "Unknown date"}
+              </span>
+              {hasSummary ? (
+                <span className="px-1.5 py-0.2 rounded bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-300 text-[10px] font-semibold">
+                  Summarized ({video.summaries_v2[0]?.model_name?.split("/").pop() || "v2"})
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-semibold">
+                  Missing Summary
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </td>
-      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
-        {video.upload_date}
-      </td>
-      <td className="px-4 py-3 text-sm">
-        {video.summaries_v2.length > 0 ? (
-          <div className="flex items-center gap-2">
-            {video.summaries_v2.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => onViewSummary(s.id)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
-              >
-                <SummaryIcon className="w-3 h-3" />
-                {s.model_name}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <span className="text-gray-400 text-xs italic">No summaries</span>
-        )}
-      </td>
-      <td className="px-4 py-3 text-sm">
-        <div className="flex items-center gap-2">
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-1">
           <button
             onClick={() => onChat(video.video_id)}
-            className="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-purple-500 transition-colors"
-            title="Chat"
+            className="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 hover:text-blue-500 transition-colors cursor-pointer"
+            title="Chat about this video"
           >
             <ChatIcon className="w-4 h-4" />
           </button>
           <button
             onClick={() => onViewTranscript(video.video_id)}
-            className="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-blue-500 transition-colors"
-            title="Transcript"
+            className="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 hover:text-purple-500 transition-colors cursor-pointer"
+            title="View transcript"
           >
             <TranscriptIcon className="w-4 h-4" />
           </button>
+          {hasSummary && (
+            <button
+              onClick={() => onViewSummary(video.summaries_v2[0].id)}
+              className="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 hover:text-green-500 transition-colors cursor-pointer"
+              title="View summary"
+            >
+              <SummaryIcon className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </td>
     </tr>
@@ -190,18 +202,40 @@ export default function VideosPage() {
   const channelName = params.channel as string;
 
   const [videos, setVideos] = useState<Video[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState("");
-  const [sortKey, setSortKey] = useState("title");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [sortKey, setSortKey] = useState("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [filter, setFilter] = useState("");
+  const [missingSummaryOnly, setMissingSummaryOnly] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  // Summarize Modal State
+  const [showSummarizeModal, setShowSummarizeModal] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("nemo-qwen3.8-27b-nvfp4");
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState("medium");
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+
+  // Task Progress State
   const [summarizing, setSummarizing] = useState(false);
   const [summarizeTaskId, setSummarizeTaskId] = useState<string | null>(null);
+  const [taskProgress, setTaskProgress] = useState<TaskStatus | null>(null);
   const { toasts, show: showToast } = useToast();
 
   const pageSize = 50;
+
+  useEffect(() => {
+    listModels()
+      .then((res) => {
+        if (res.models && res.models.length > 0) {
+          setAvailableModels(res.models);
+          const def = res.models.find((m) => m.is_default);
+          if (def) setSelectedModel(def.model_id);
+        }
+      })
+      .catch(() => { /* fallback */ });
+  }, []);
 
   const loadVideos = useCallback(async () => {
     setLoading(true);
@@ -216,62 +250,96 @@ export default function VideosPage() {
       setVideos(data.videos);
       setTotal(data.total);
     } catch {
-      // silent — user sees loading state
+      // silent
     } finally {
       setLoading(false);
     }
   }, [channelName, page, pageSize, sortKey, sortDir, filter]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-time data fetch; state updates happen inside the async load callback
     loadVideos();
   }, [loadVideos]);
 
-  // Poll the specific summarize task until it reaches a terminal state.
+  // Poll summarize job status
   useEffect(() => {
     if (!summarizing || !summarizeTaskId) return;
     const interval = setInterval(async () => {
       try {
         const status = await getTaskStatus(summarizeTaskId);
-        if (status.status === "completed" || status.status === "failed") {
+        setTaskProgress(status);
+        if (status.status === "completed" || status.status === "failed" || status.status === "cancelled") {
           setSummarizing(false);
           loadVideos();
+          if (status.status === "completed") {
+            showToast("Summarization completed!", "success");
+          } else if (status.status === "failed") {
+            showToast("Summarization failed.", "error");
+          }
         }
       } catch {
         /* ignore */
       }
-    }, 3000);
+    }, 2500);
     return () => clearInterval(interval);
-  }, [summarizing, summarizeTaskId, loadVideos]);
+  }, [summarizing, summarizeTaskId, loadVideos, showToast]);
+
+  const displayedVideos = useMemo(() => {
+    if (!missingSummaryOnly) return videos;
+    return videos.filter((v) => !v.summaries_v2 || v.summaries_v2.length === 0);
+  }, [videos, missingSummaryOnly]);
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        if (next.size >= 100) {
+          showToast("Maximum 100 videos per batch.", "info");
+          return prev;
+        }
+        next.add(id);
+      }
       return next;
     });
   };
 
-  const selectAll = () => {
-    if (selected.size === videos.length) {
+  const selectAllCurrentPage = () => {
+    if (selected.size >= displayedVideos.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(videos.map((v) => v.video_id)));
+      const newSet = new Set(selected);
+      for (const v of displayedVideos) {
+        if (newSet.size >= 100) break;
+        newSet.add(v.video_id);
+      }
+      setSelected(newSet);
     }
   };
 
-  const handleSummarize = async () => {
+  const selectMissingCurrentPage = () => {
+    const unsummarized = displayedVideos.filter((v) => !v.summaries_v2 || v.summaries_v2.length === 0);
+    const newSet = new Set(selected);
+    for (const v of unsummarized) {
+      if (newSet.size >= 100) break;
+      newSet.add(v.video_id);
+    }
+    setSelected(newSet);
+  };
+
+  const handleStartBatch = async () => {
     const ids = Array.from(selected);
     if (ids.length === 0) {
       showToast("No videos selected", "error");
       return;
     }
+    setShowSummarizeModal(false);
     setSummarizing(true);
+    setTaskProgress({ status: "pending", processed: 0, total: ids.length, errors: [] });
     try {
-      const res = await summarizeVideos(channelName, ids);
+      const res = await summarizeVideos(channelName, ids, selectedModel, selectedReasoningEffort);
       if (res.task_id) {
-        showToast(`Summarization started. Task: ${res.task_id}`, "success");
+        showToast(`Summarization started (${ids.length} videos).`, "success");
         setSelected(new Set());
         setSummarizeTaskId(res.task_id);
       } else {
@@ -284,144 +352,306 @@ export default function VideosPage() {
     }
   };
 
+  const handleCancelJob = async () => {
+    if (!summarizeTaskId) return;
+    try {
+      await cancelJob(summarizeTaskId);
+      showToast("Job cancellation requested", "info");
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Failed to cancel job", "error");
+    }
+  };
+
+  const handleRetryJob = async () => {
+    if (!summarizeTaskId) return;
+    try {
+      await retryJob(summarizeTaskId);
+      showToast("Retrying failed items", "info");
+      setSummarizing(true);
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Failed to retry job", "error");
+    }
+  };
+
   const totalPages = Math.ceil(total / pageSize);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
-          {channelName}
-        </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          {total} videos
-        </p>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+            {channelName}
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {total} total videos in playlist
+          </p>
+        </div>
+        <a
+          href={`/chat/channel/${encodeURIComponent(channelName)}`}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold shadow-md transition-colors"
+        >
+          <ChatIcon className="w-4 h-4" />
+          Chat with Channel
+        </a>
       </div>
 
       {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3 mb-6">
-        {/* Filter */}
-        <input
-          type="text"
-          value={filter}
-          onChange={(e) => { setFilter(e.target.value); setPage(1); }}
-          placeholder="Filter by title..."
-          className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-xs border border-gray-200 dark:border-gray-700">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Search filter */}
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => { setFilter(e.target.value); setPage(1); }}
+            placeholder="Filter by title..."
+            className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm w-56 focus:ring-2 focus:ring-blue-500"
+          />
 
-        {/* Sort */}
-        <select
-          value={`${sortKey}-${sortDir}`}
-          onChange={(e) => {
-            const [by, order] = e.target.value.split("-") as [string, "asc" | "desc"];
-            setSortKey(by);
-            setSortDir(order);
-            setPage(1);
-          }}
-          className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="title-asc">Title A-Z</option>
-          <option value="title-desc">Title Z-A</option>
-          <option value="date-asc">Date ↑</option>
-          <option value="date-desc">Date ↓</option>
-        </select>
+          {/* Sort */}
+          <select
+            value={`${sortKey}-${sortDir}`}
+            onChange={(e) => {
+              const [by, order] = e.target.value.split("-") as [string, "asc" | "desc"];
+              setSortKey(by);
+              setSortDir(order);
+              setPage(1);
+            }}
+            className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
+          >
+            <option value="title-asc">Title A-Z</option>
+            <option value="title-desc">Title Z-A</option>
+            <option value="date-asc">Date ↑</option>
+            <option value="date-desc">Date ↓</option>
+          </select>
 
-        {/* Summarize */}
-        <button
-          onClick={handleSummarize}
-          disabled={summarizing || selected.size === 0}
-          className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors"
-        >
-          {summarizing ? "Processing..." : `Summarize (${selected.size})`}
-        </button>
+          {/* Missing Summary toggle */}
+          <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={missingSummaryOnly}
+              onChange={(e) => setMissingSummaryOnly(e.target.checked)}
+              className="w-4 h-4 text-amber-500 rounded border-gray-300 focus:ring-amber-500 cursor-pointer"
+            />
+            <span>Missing Summary Only</span>
+          </label>
+        </div>
+
+        {/* Bulk select and Summarize buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={selectAllCurrentPage}
+            className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+          >
+            {selected.size > 0 ? `Clear (${selected.size})` : "Select Page"}
+          </button>
+          <button
+            type="button"
+            onClick={selectMissingCurrentPage}
+            className="px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700 text-xs font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
+          >
+            Select Unsummarized
+          </button>
+          <button
+            onClick={() => setShowSummarizeModal(true)}
+            disabled={summarizing || selected.size === 0}
+            className="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors cursor-pointer"
+          >
+            {summarizing ? "Processing..." : `Summarize Selected (${selected.size}/100)`}
+          </button>
+        </div>
       </div>
 
-      {/* Task progress */}
-      {summarizing && (
-        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-          <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
-            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Summarization in progress...
+      {/* Live task progress card */}
+      {summarizing && taskProgress && (
+        <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-xl shadow-xs">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <svg className="animate-spin h-4 w-4 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <span className="text-sm font-semibold text-blue-900 dark:text-blue-200">
+                Batch Summarization in Progress ({taskProgress.processed} of {taskProgress.total} completed)
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCancelJob}
+                className="px-2.5 py-1 text-xs font-semibold rounded bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 hover:bg-red-200 transition-colors cursor-pointer"
+              >
+                Cancel Job
+              </button>
+              {taskProgress.errors && taskProgress.errors.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleRetryJob}
+                  className="px-2.5 py-1 text-xs font-semibold rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 hover:bg-amber-200 transition-colors cursor-pointer"
+                >
+                  Retry Failed
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2">
+            <div
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              style={{
+                width: `${taskProgress.total > 0 ? Math.min(100, Math.round((taskProgress.processed / taskProgress.total) * 100)) : 0}%`,
+              }}
+            />
           </div>
         </div>
       )}
 
-      {/* Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead className="bg-gray-50 dark:bg-gray-700">
+      {/* Videos table */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+              <th className="px-4 py-3 w-12">
+                <input
+                  type="checkbox"
+                  checked={displayedVideos.length > 0 && selected.size >= displayedVideos.length}
+                  onChange={selectAllCurrentPage}
+                  className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                />
+              </th>
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Video Title & Info
+              </th>
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-32">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+            {loading ? (
               <tr>
-                <th className="px-4 py-3 text-left">
-                  <input
-                    type="checkbox"
-                    checked={selected.size === videos.length && videos.length > 0}
-                    onChange={selectAll}
-                    className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500"
-                  />
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Title</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Summaries</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                <td colSpan={3} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                  Loading videos...
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {loading ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                    <div className="animate-pulse">Loading...</div>
-                  </td>
-                </tr>
-              ) : videos.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                    No videos found.
-                  </td>
-                </tr>
-              ) : (
-                videos.map((v) => (
-                  <VideoRow
-                    key={v.video_id}
-                    video={v}
-                    selected={selected.has(v.video_id)}
-                    onToggle={toggleSelect}
-                    onChat={(id) => window.open(`/chat/video/${id}`, "_blank")}
-                    onViewSummary={(id) => window.open(`/summaries/${id}`, "_blank")}
-                    onViewTranscript={(id) => window.open(`/transcript/${id}`, "_blank")}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              Previous
-            </button>
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              Page {page} of {totalPages}
-            </span>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              Next
-            </button>
-          </div>
-        )}
+            ) : displayedVideos.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                  No videos found matching current filters.
+                </td>
+              </tr>
+            ) : (
+              displayedVideos.map((video) => (
+                <VideoRow
+                  key={video.video_id}
+                  video={video}
+                  selected={selected.has(video.video_id)}
+                  onToggle={toggleSelect}
+                  onChat={(id) => { window.location.href = `/chat/video/${encodeURIComponent(id)}`; }}
+                  onViewSummary={(id) => { window.location.href = `/summaries/${id}`; }}
+                  onViewTranscript={(id) => { window.location.href = `/transcript/${encodeURIComponent(id)}`; }}
+                />
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-6">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-medium disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+          >
+            ← Previous
+          </button>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            Page {page} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-medium disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+          >
+            Next →
+          </button>
+        </div>
+      )}
+
+      {/* Summarize configuration modal */}
+      {showSummarizeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 border border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+              Configure Batch Summarization
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Selected <strong>{selected.size}</strong> video(s) for 9-section structured summary generation.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                  AI Model
+                </label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm font-mono"
+                >
+                  {availableModels.length > 0 ? (
+                    availableModels.map((m) => (
+                      <option key={m.model_id} value={m.model_id}>
+                        {m.display_name} ({m.family})
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="nemo-qwen3.8-27b-nvfp4">Qwen 3.8 27B</option>
+                      <option value="nemo-qwen3.5-35b-a3b-nvfp4">Qwen 3.5 35B</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                  Reasoning Effort
+                </label>
+                <select
+                  value={selectedReasoningEffort}
+                  onChange={(e) => setSelectedReasoningEffort(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
+                >
+                  <option value="disabled">Disabled (Fastest)</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium (Standard)</option>
+                  <option value="xhigh">Extra High (Deep Hierarchical Analysis)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSummarizeModal(false)}
+                className="px-4 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleStartBatch}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold shadow-xs cursor-pointer"
+              >
+                Start Summarizing ({selected.size})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ToastContainer toasts={toasts} />
     </div>

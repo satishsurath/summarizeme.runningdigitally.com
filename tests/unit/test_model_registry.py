@@ -88,3 +88,25 @@ class TestModelRegistryService:
         models = ModelRegistryService.probe_endpoint_models("http://localhost:8000")
         assert len(models) == 2
         assert "nemo-qwen3.8-27b-nvfp4" in models
+
+    def test_validate_model_for_operation(self):
+        session = create_in_memory_session()
+        ModelRegistryService.bootstrap_from_env(session)
+
+        # Valid model for summarize_v3
+        model = ModelRegistryService.validate_model_for_operation(
+            session=session,
+            model_id="nemo-qwen3.8-27b-nvfp4",
+            operation_name="summarize_v3",
+        )
+        assert model.model_id == "nemo-qwen3.8-27b-nvfp4"
+
+        # Invalid operation
+        import pytest
+
+        with pytest.raises(ValueError, match="Unknown AI operation"):
+            ModelRegistryService.validate_model_for_operation(
+                session=session,
+                model_id="nemo-qwen3.8-27b-nvfp4",
+                operation_name="unknown_op",
+            )

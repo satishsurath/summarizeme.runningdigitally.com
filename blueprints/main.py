@@ -1,9 +1,10 @@
 """Main blueprint — index, status, health, videos, summaries, transcripts."""
 
 from flask import Blueprint, jsonify, render_template
+from sqlalchemy import select
 
-from app_config import SessionLocal, md_safe
-from db.models import SummariesV2, Video, VideoFolder
+from app_config import SessionLocal, md_safe, require_role
+from db.models import SummariesV2, SummaryRun, Video, VideoFolder
 
 main_bp = Blueprint("main", __name__)
 
@@ -84,14 +85,49 @@ def view_summary_v2(summary_id):
         session.close()
 
 
-@main_bp.route("/api/summaries/<int:summary_id>", methods=["GET"])
+@main_bp.route("/api/summaries/<summary_id>", methods=["GET"])
+@require_role(["admin", "member"])
 def api_get_summary(summary_id):
-    """Fetch SummariesV2 by ID as JSON for the Next.js frontend."""
+    """Fetch SummariesV2 and latest StructuredSummaryV3 JSON for the Next.js frontend."""
     session = SessionLocal()
     try:
-        summary_obj = session.get(SummariesV2, summary_id)
+        summary_obj = None
+        # Try numeric ID first
+        if str(summary_id).isdigit():
+            summary_obj = session.get(SummariesV2, int(summary_id))
+
         if not summary_obj:
-            return jsonify({"error": f"SummariesV2 with ID {summary_id} not found."}), 404
+            # Fallback: check if summary_id is a SummaryRun UUID
+            srun = session.get(SummaryRun, str(summary_id))
+            if srun:
+                video = session.get(Video, srun.video_id)
+                return jsonify(
+                    {
+                        "id": srun.id,
+                        "video_id": srun.video_id,
+                        "video_title": video.title if video else srun.video_id,
+                        "model_name": srun.model_name,
+                        "date_generated": srun.created_at.isoformat() if srun.created_at else None,
+                        "structured_summary": srun.structured_summary,
+                        "reasoning_output": srun.reasoning_output,
+                        "concise_summary": "",
+                        "key_topics": "",
+                        "important_takeaways": "",
+                        "comprehensive_notes": "",
+                    }
+                )
+            return jsonify({"error": f"Summary with ID {summary_id} not found."}), 404
+
+        # Query corresponding SummaryRun for rich 9-section JSON
+        latest_run = session.scalar(
+            select(SummaryRun)
+            .where(
+                SummaryRun.video_id == summary_obj.video_id,
+                SummaryRun.model_name == summary_obj.model_name,
+            )
+            .order_by(SummaryRun.created_at.desc())
+            .limit(1)
+        )
 
         return jsonify(
             {
@@ -104,6 +140,8 @@ def api_get_summary(summary_id):
                 "key_topics": summary_obj.key_topics or "",
                 "important_takeaways": summary_obj.important_takeaways or "",
                 "comprehensive_notes": summary_obj.comprehensive_notes or "",
+                "structured_summary": latest_run.structured_summary if latest_run else None,
+                "reasoning_output": latest_run.reasoning_output if latest_run else None,
             }
         )
     finally:
