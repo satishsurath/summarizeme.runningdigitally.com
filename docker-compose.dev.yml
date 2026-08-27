@@ -54,8 +54,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
       target: builder
       args:
         NEXT_API_URL: http://app:5000
@@ -85,9 +85,13 @@ services:
       FLASK_ENV: development
       DEV_AUTH_ENABLED: "true"
       ASYNC_PIPELINE_ENABLED: "true"
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /app
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
-    command: python workers/main.py --resource-class all --poll-interval-seconds 1.0
+    command: python -m workers.main --resource-class all --poll-interval-seconds 1.0

@@ -138,8 +138,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
       args:
         # Server-side target for the /api/* proxy route (in-container address).
         NEXT_API_URL: http://app:8000

@@ -4,6 +4,7 @@ FROM python:3.12-slim
 # Prevent .pyc files and ensure unbuffered stdout
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 WORKDIR /app
 

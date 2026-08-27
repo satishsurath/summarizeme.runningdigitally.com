@@ -17,6 +17,9 @@ This document tracks all active problem tickets, architectural backlog items, te
 | **PT-007** | Chat Thinking Block Post-Stream | Chat thinking block dissolved into main answer post-stream due to markdown string concatenation. | Phase 3 & 6 | High | **Resolved** |
 | **PT-008** | Model Identifier Drift | `app_config.py` defaults to `nemo-qwen3.6-35b` while Homelab runs `nemo-qwen3.8-27b-nvfp4`. | Phase 0 & 5 | High | **Resolved** |
 | **PT-009** | Daemon Thread Task Store | Background jobs run as daemon threads inside Gunicorn with Redis task store lacking atomic leases. | Phase 1 & 7 | Critical | **Resolved** |
+| **PT-010** | Frontend Docker Context Conflict | Root `.dockerignore` excludes `frontend/`, causing `Dockerfile.frontend` build to fail when context is root. | Phase 6 & 7 | High | **Resolved** |
+| **PT-011** | Worker Module Resolution | Worker container executing `python workers/main.py` fails importing `app_config` due to `sys.path[0]` isolation. | Phase 1 & 7 | High | **Resolved** |
+| **PT-012** | Migration `d83220d1c993` Idempotency | Alembic migration crashes with `DuplicateColumn` on databases with pre-existing `video_folders.content_type`. | Phase 0 & 1 | Low | **Resolved** |
 
 ---
 
