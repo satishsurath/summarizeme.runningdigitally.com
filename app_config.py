@@ -32,6 +32,7 @@ from summarizer_v2 import (  # noqa: F401  # re-exported for blueprints
 from youtube_utils import download_channel_transcripts  # noqa: F401  # re-exported for blueprints
 
 DEFAULT_GEN_MODEL = os.getenv("VLLM_GEN_MODEL", "nemo-qwen3.8-27b-nvfp4")
+DEFAULT_EMBED_MODEL = os.getenv("VLLM_EMBED_MODEL", "nemo-nomic-embed-text-v1.5")
 
 # Feature Flags
 ASYNC_PIPELINE_ENABLED = os.getenv("ASYNC_PIPELINE_ENABLED", "false").lower() in ("true", "1", "yes")

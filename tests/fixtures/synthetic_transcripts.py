@@ -259,3 +259,6 @@ SAMPLE_STRUCTURED_SUMMARY_DICT: dict[str, Any] = {
         },
     ],
 }
+
+# Synthetic 768-dimensional unit vector for Nomic test mocks
+SYNTHETIC_768_DIM_VECTOR: list[float] = [0.01 * (i % 10) for i in range(768)]

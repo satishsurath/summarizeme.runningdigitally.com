@@ -12,7 +12,7 @@ This document tracks all active problem tickets, architectural backlog items, te
 | **PT-002** | Chat Model Selector | Chat deprecated model selector not synchronized with backend active models; hardcoded options in UI. | Phase 5 & 6 | High | Open |
 | **PT-003** | youtu.be URL Format | Single video download `youtu.be` format not consistently detected by legacy acquisition script. | Phase 2 | Medium | **Resolved** |
 | **PT-004** | DB Persistence on Rebuild | Docker rebuild previously risked data persistence issues if volumes were misconfigured. | Phase 1 & 7 | High | **Resolved** |
-| **PT-005** | Chat Embedding 404 | Chat RAG query failed when embedding service URL was not reachable on port 8001. | Phase 4 & 5 | High | Open |
+| **PT-005** | Chat Embedding 404 | Chat RAG query failed when embedding service URL was not reachable on port 8001. | Phase 4 & 5 | High | In Progress |
 | **PT-006** | Branch Protection & Status Checks | PR merged despite failed lint; missing branch protection gate in CI. | Phase 0 | Medium | **Resolved** |
 | **PT-007** | Chat Thinking Block Post-Stream | Chat thinking block dissolved into main answer post-stream due to markdown string concatenation. | Phase 3 & 6 | High | In Progress |
 | **PT-008** | Model Identifier Drift | `app_config.py` defaults to `nemo-qwen3.6-35b` while Homelab runs `nemo-qwen3.8-27b-nvfp4`. | Phase 0 & 5 | High | **Resolved** |
@@ -45,9 +45,9 @@ This document tracks all active problem tickets, architectural backlog items, te
 - [x] **BKG-014** (`P0`): Implement `summarize` worker stage with batch generation lease admission (max 2) and interactive reservation (1 slot).
 
 ### Phase 4: Batched Embeddings & Unified Index
-- [ ] **BKG-015** (`P0`): Implement Nomic batch packing ($\le 32$ sequences, $\le 8,192$ aggregate tokens) in `services/embedding_service.py`.
-- [ ] **BKG-016** (`P0`): Create Alembic migration for `content_chunks` table with pgvector HNSW and GIN tsvector indexes.
-- [ ] **BKG-017** (`P1`): Implement dual-write bridge to update both `content_chunks` and legacy vector tables.
+- [x] **BKG-015** (`P0`): Implement Nomic batch packing ($\le 32$ sequences, $\le 8,192$ aggregate tokens) in `services/embedding_service.py`.
+- [x] **BKG-016** (`P0`): Create Alembic migration for `content_chunks` table with pgvector HNSW and GIN tsvector indexes.
+- [x] **BKG-017** (`P1`): Implement dual-write bridge to update both `content_chunks` and legacy vector tables.
 
 ### Phase 5: Stateful Chat, Hybrid Retrieval & Model Registry
 - [ ] **BKG-018** (`P0`): Create Alembic migration for `conversations`, `conversation_messages`, and Model Registry tables.

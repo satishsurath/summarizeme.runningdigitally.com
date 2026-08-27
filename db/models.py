@@ -53,6 +53,9 @@ class Video(Base):
     summary_runs: Mapped[list[SummaryRun]] = relationship(
         "SummaryRun", back_populates="video", cascade="all, delete-orphan", lazy="selectin"
     )
+    chunks: Mapped[list[ContentChunk]] = relationship(
+        "ContentChunk", back_populates="video", cascade="all, delete-orphan", lazy="selectin"
+    )
 
 
 class VideoFolder(Base):
@@ -272,3 +275,31 @@ class SummaryRun(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     video: Mapped[Video] = relationship("Video", back_populates="summary_runs")
+
+
+class ContentChunk(Base):
+    """Unified hybrid content chunk with metadata, timestamps, and 768-dim embedding vector."""
+
+    __tablename__ = "content_chunks"
+    __table_args__ = (
+        UniqueConstraint("video_id", "chunk_type", "sequence_index", name="uq_content_chunks_video_type_seq"),
+        Index("ix_content_chunks_video_type", "video_id", "chunk_type"),
+        Index("ix_content_chunks_start_seconds", "video_id", "start_seconds"),
+        Index("ix_content_chunks_hash", "content_hash"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[str] = mapped_column(String(50), ForeignKey("videos.video_id", ondelete="CASCADE"), nullable=False)
+    chunk_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    parent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sequence_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    end_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speaker: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    video: Mapped[Video] = relationship("Video", back_populates="chunks")

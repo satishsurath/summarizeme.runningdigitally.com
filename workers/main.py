@@ -51,12 +51,20 @@ def register_stage_handler(
 
 # Register default built-in stage handlers
 from workers.stages.discovery import handle_discovery  # noqa: E402
+from workers.stages.embedding import (  # noqa: E402
+    handle_embed_summary,
+    handle_embed_transcript,
+)
+from workers.stages.finalize import handle_finalize  # noqa: E402
 from workers.stages.summary import handle_summary  # noqa: E402
 from workers.stages.transcript import handle_transcript  # noqa: E402
 
 register_stage_handler("discover", handle_discovery)
 register_stage_handler("transcript", handle_transcript)
 register_stage_handler("summarize", handle_summary)
+register_stage_handler("embed_transcript", handle_embed_transcript)
+register_stage_handler("embed_summary", handle_embed_summary)
+register_stage_handler("finalize", handle_finalize)
 
 
 def execute_work_item(work_item: Any, session: Any) -> None:
