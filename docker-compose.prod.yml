@@ -188,6 +188,87 @@ services:
     command: ["sh", "-c", "alembic upgrade head && python run_vectorizers.py"]
     restart: "no"
 
+  worker-control:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ASYNC_PIPELINE_ENABLED=true
+      - AI_MODEL_REGISTRY_ENABLED=true
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "workers/main.py", "--stages", "discovery,finalize", "--poll-interval", "1.0"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512M"
+
+  worker-transcript:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ASYNC_PIPELINE_ENABLED=true
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "workers/main.py", "--stages", "transcript", "--poll-interval", "1.0"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "1G"
+
+  worker-summary:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - VLLM_GEN_HOST=${VLLM_GEN_HOST}
+      - VLLM_GEN_PORT=${VLLM_GEN_PORT:-8000}
+      - VLLM_GEN_API_KEY=${VLLM_GEN_API_KEY:-local-noauth}
+      - VLLM_GEN_MODEL=${VLLM_GEN_MODEL:-nemo-qwen3.8-27b-nvfp4}
+      - ASYNC_PIPELINE_ENABLED=true
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "workers/main.py", "--stages", "summarize", "--poll-interval", "1.0"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "1G"
+
+  worker-embedding:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - VLLM_EMBED_HOST=${VLLM_EMBED_HOST}
+      - VLLM_EMBED_PORT=${VLLM_EMBED_PORT:-8001}
+      - VLLM_EMBED_API_KEY=${VLLM_EMBED_API_KEY:-local-noauth}
+      - VLLM_EMBED_MODEL=${VLLM_EMBED_MODEL:-nemo-nomic-embed-text-v1.5}
+      - ASYNC_PIPELINE_ENABLED=true
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "workers/main.py", "--stages", "embed_transcript,embed_summary", "--poll-interval", "1.0"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "1G"
+
 volumes:
   pgdata:
     driver: local

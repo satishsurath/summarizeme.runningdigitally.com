@@ -35,8 +35,8 @@ DEFAULT_GEN_MODEL = os.getenv("VLLM_GEN_MODEL", "nemo-qwen3.8-27b-nvfp4")
 DEFAULT_EMBED_MODEL = os.getenv("VLLM_EMBED_MODEL", "nemo-nomic-embed-text-v1.5")
 
 # Feature Flags
-ASYNC_PIPELINE_ENABLED = os.getenv("ASYNC_PIPELINE_ENABLED", "false").lower() in ("true", "1", "yes")
-AI_MODEL_REGISTRY_ENABLED = os.getenv("AI_MODEL_REGISTRY_ENABLED", "false").lower() in ("true", "1", "yes")
+ASYNC_PIPELINE_ENABLED = os.getenv("ASYNC_PIPELINE_ENABLED", "true").lower() in ("true", "1", "yes")
+AI_MODEL_REGISTRY_ENABLED = os.getenv("AI_MODEL_REGISTRY_ENABLED", "true").lower() in ("true", "1", "yes")
 AI_MODEL_REGISTRY_BOOTSTRAP_FROM_ENV = os.getenv("AI_MODEL_REGISTRY_BOOTSTRAP_FROM_ENV", "true").lower() in (
     "true",
     "1",

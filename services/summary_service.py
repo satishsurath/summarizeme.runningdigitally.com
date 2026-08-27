@@ -194,6 +194,12 @@ class SummaryService:
         msg = choices[0].get("message", {})
         raw_content = msg.get("content", "")
         reasoning_content = msg.get("reasoning_content") or msg.get("reasoning")
+        if not reasoning_content and "<think>" in raw_content:
+            think_match = re.search(r"<think>(.*?)</think>", raw_content, re.DOTALL)
+            if think_match:
+                reasoning_content = think_match.group(1).strip()
+                raw_content = (raw_content[: think_match.start()] + raw_content[think_match.end() :]).strip()
+
         usage = data.get("usage", {})
 
         usage_dict = {

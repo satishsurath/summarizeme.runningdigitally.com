@@ -71,3 +71,23 @@ services:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
     command: ["npx", "next", "dev", "-p", "3000", "-H", "0.0.0.0"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      DATABASE_URL: postgresql://summarizeme:summarizeme_pass@db:5432/summarizeme
+      VLLM_EMBED_HOST: ${VLLM_EMBED_HOST:?set VLLM_EMBED_HOST in .env}
+      VLLM_EMBED_PORT: "8001"
+      VLLM_GEN_HOST: ${VLLM_GEN_HOST:?set VLLM_GEN_HOST in .env}
+      VLLM_GEN_PORT: "8000"
+      FLASK_ENV: development
+      DEV_AUTH_ENABLED: "true"
+      ASYNC_PIPELINE_ENABLED: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: python workers/main.py --poll-interval 1.0

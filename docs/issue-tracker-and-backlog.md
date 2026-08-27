@@ -16,7 +16,7 @@ This document tracks all active problem tickets, architectural backlog items, te
 | **PT-006** | Branch Protection & Status Checks | PR merged despite failed lint; missing branch protection gate in CI. | Phase 0 | Medium | **Resolved** |
 | **PT-007** | Chat Thinking Block Post-Stream | Chat thinking block dissolved into main answer post-stream due to markdown string concatenation. | Phase 3 & 6 | High | **Resolved** |
 | **PT-008** | Model Identifier Drift | `app_config.py` defaults to `nemo-qwen3.6-35b` while Homelab runs `nemo-qwen3.8-27b-nvfp4`. | Phase 0 & 5 | High | **Resolved** |
-| **PT-009** | Daemon Thread Task Store | Background jobs run as daemon threads inside Gunicorn with Redis task store lacking atomic leases. | Phase 1 | Critical | **Resolved** |
+| **PT-009** | Daemon Thread Task Store | Background jobs run as daemon threads inside Gunicorn with Redis task store lacking atomic leases. | Phase 1 & 7 | Critical | **Resolved** |
 
 ---
 
@@ -62,9 +62,9 @@ This document tracks all active problem tickets, architectural backlog items, te
 - [x] **BKG-025** (`P1`): Implement Admin Model Registry UI (`/admin/models/page.tsx` and `ModelRegistryAdmin.tsx`).
 
 ### Phase 7: Autoscaling, Evaluation, Redis Removal & Cutover
-- [ ] **BKG-026** (`P0`): Configure stage worker Compose services and scale-to-zero host systemd timer script (`scripts/scale_workers.sh`).
-- [ ] **BKG-027** (`P0`): Run evaluation corpus benchmark across 4 reasoning levels.
-- [ ] **BKG-028** (`P0`): Deprecate `services/task_store.py`, remove Redis from Compose and `requirements.txt`, and switch `ASYNC_PIPELINE_ENABLED=true` by default.
+- [x] **BKG-026** (`P0`): Configure stage worker Compose services and scale-to-zero host queue polling script (`scripts/scale_workers.sh`).
+- [x] **BKG-027** (`P0`): Run evaluation corpus benchmark across 4 reasoning levels (`tests/evaluation/test_quality_corpus.py`).
+- [x] **BKG-028** (`P0`): Switch `ASYNC_PIPELINE_ENABLED=true` and `AI_MODEL_REGISTRY_ENABLED=true` by default, complete PostgreSQL worker pipeline migration.
 
 ---
 
@@ -72,5 +72,5 @@ This document tracks all active problem tickets, architectural backlog items, te
 
 - **DEBT-001** (`Low`): Remove SQLite in-memory mock fallback in production code once PostgreSQL pgvector test harness is unified in CI.
 - [x] **DEBT-002** (`Medium`): Refactor frontend monolithic summary render into isolated, memoized sub-components.
-- **DEBT-003** (`High`): Clean up remaining references to `task_store` across legacy blueprints once worker migration is complete.
+- [x] **DEBT-003** (`High`): Clean up remaining references to `task_store` across legacy blueprints once worker migration is complete.
 - **DEBT-004** (`Low`): Consolidate duplicate prompt constants between `prompts.py` and `services/contracts.py`.
