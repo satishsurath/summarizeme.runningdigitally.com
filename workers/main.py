@@ -49,6 +49,16 @@ def register_stage_handler(
     STAGE_HANDLERS[stage] = handler
 
 
+# Register default built-in stage handlers
+from workers.stages.discovery import handle_discovery  # noqa: E402
+from workers.stages.summary import handle_summary  # noqa: E402
+from workers.stages.transcript import handle_transcript  # noqa: E402
+
+register_stage_handler("discover", handle_discovery)
+register_stage_handler("transcript", handle_transcript)
+register_stage_handler("summarize", handle_summary)
+
+
 def execute_work_item(work_item: Any, session: Any) -> None:
     """Execute the handler for a given work item."""
     stage = work_item.stage

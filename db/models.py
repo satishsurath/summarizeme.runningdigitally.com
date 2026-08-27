@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -46,6 +47,12 @@ class Video(Base):
 
     folders: Mapped[list[VideoFolder]] = relationship("VideoFolder", back_populates="video")
     summaries_v2: Mapped[list[SummariesV2]] = relationship("SummariesV2", back_populates="video")
+    segments: Mapped[list[TranscriptSegment]] = relationship(
+        "TranscriptSegment", back_populates="video", cascade="all, delete-orphan", lazy="selectin"
+    )
+    summary_runs: Mapped[list[SummaryRun]] = relationship(
+        "SummaryRun", back_populates="video", cascade="all, delete-orphan", lazy="selectin"
+    )
 
 
 class VideoFolder(Base):
@@ -212,3 +219,56 @@ class ExternalRateLimit(Base):
     failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class TranscriptSegment(Base):
+    """Normalized timestamped transcript segment with speaker and content hash."""
+
+    __tablename__ = "transcript_segments"
+    __table_args__ = (
+        UniqueConstraint("video_id", "segment_index", name="uq_transcript_segments_video_idx"),
+        Index("ix_transcript_segments_video_start", "video_id", "start_seconds"),
+        Index("ix_transcript_segments_hash", "content_hash"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[str] = mapped_column(
+        String(50), ForeignKey("videos.video_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    segment_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    end_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    speaker: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    video: Mapped[Video] = relationship("Video", back_populates="segments")
+
+
+class SummaryRun(Base):
+    """Execution run of 9-section structured summary generation with thinking and validation status."""
+
+    __tablename__ = "summary_runs"
+    __table_args__ = (
+        UniqueConstraint("video_id", "model_name", "reasoning_effort", name="uq_summary_runs_video_model_effort"),
+        Index("ix_summary_runs_video_id", "video_id"),
+        Index("ix_summary_runs_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    video_id: Mapped[str] = mapped_column(String(50), ForeignKey("videos.video_id", ondelete="CASCADE"), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    reasoning_effort: Mapped[str] = mapped_column(String(32), nullable=False, default="medium")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    generation_profile_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    structured_summary: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    reasoning_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
+    validation_errors: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    video: Mapped[Video] = relationship("Video", back_populates="summary_runs")
