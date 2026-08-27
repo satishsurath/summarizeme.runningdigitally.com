@@ -94,11 +94,11 @@ class RetrievalService:
                 # Vector Search via pgvector HNSW / cosine distance (<=>)
                 vec_sql = """
                     SELECT id, video_id, chunk_type, parent_id, sequence_index, start_seconds, end_seconds,
-                           speaker, text, token_count, (embedding_vec <=> :query_vec::vector) as distance
+                           speaker, text, token_count, (embedding_vec <=> CAST(:query_vec AS vector)) as distance
                     FROM content_chunks
                     WHERE (:has_scope = false OR video_id = ANY(:target_ids))
                       AND embedding_vec IS NOT NULL
-                    ORDER BY embedding_vec <=> :query_vec::vector
+                    ORDER BY embedding_vec <=> CAST(:query_vec AS vector)
                     LIMIT 50
                 """
                 vec_params = {
@@ -135,7 +135,11 @@ class RetrievalService:
                     scores[cid] = scores.get(cid, 0.0) + (1.0 / (rrf_k + rank + 1))
 
             except Exception as pg_exc:
-                logger.warning("PostgreSQL native hybrid search failed: %s. Falling back to in-memory ranking.", pg_exc)
+                logger.warning(
+                    "PostgreSQL native hybrid search failed: %s. Falling back to in-memory ranking.",
+                    pg_exc,
+                )
+                session.rollback()
                 scores.clear()
                 chunk_map.clear()
 
