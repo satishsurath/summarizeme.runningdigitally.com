@@ -22,6 +22,8 @@ else:
     _tempdb = tempfile.NamedTemporaryFile(suffix=".db", delete=False, dir="/tmp")  # noqa: SIM115
     os.environ["DATABASE_URL"] = f"sqlite:///{_tempdb.name}"
 
+os.environ.setdefault("DEV_AUTH_ENABLED", "true")
+
 # Import after env is set — SQLAlchemy will use SQLite
 from app import app  # noqa: E402
 from db.models import Base, User  # noqa: E402
@@ -50,6 +52,7 @@ def _test_db():
 @pytest.fixture
 def client():
     """Flask test client."""
+    os.environ["DEV_AUTH_ENABLED"] = "true"
     with app.test_client() as client:
         yield client
 

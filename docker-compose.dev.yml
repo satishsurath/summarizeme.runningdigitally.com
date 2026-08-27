@@ -92,6 +92,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
     volumes:
       - .:/app
-    command: python -m workers.main --resource-class all --poll-interval-seconds 1.0
+    command: python -m workers.main --resource-class all --poll-interval-seconds 1.0 --idle-exit-seconds 0

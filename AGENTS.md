@@ -122,9 +122,10 @@ After Copilot clears, run a manual review to catch issues Copilot may miss:
    ```bash
    .venv/bin/ruff check . && .venv/bin/ruff format .
    .venv/bin/pytest tests/unit/ tests/integration/ -q
-   docker compose -f docker-compose.dev.yml build app  # if code changed
+   (cd frontend && npx tsc --noEmit)
+   docker compose -f docker-compose.dev.yml build  # if code changed
    docker compose -f docker-compose.dev.yml up -d
-   curl -s http://localhost:5001/health  # verify runtime
+   ./scripts/smoke_test.sh  # run full durable smoke test suite
    ```
 
 5. **Second-pass review.** After fixes, run a second review pass (fewer agents,
