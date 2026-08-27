@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -240,6 +241,47 @@ class TestJobQueue:
         assert refreshed_item.status == "retry"
         assert refreshed_item.lease_owner is None
         assert refreshed_item.lease_expires_at is None
+
+    def test_expired_max_attempt_lease_finishes_parent_job(self):
+        session = create_in_memory_session()
+        job = JobQueue.create_job(
+            session=session,
+            job_type="channel_ingest",
+            initial_work_items=[
+                {"stage": "summarize", "resource_class": "generation", "item_key": "vid-1", "max_attempts": 1},
+            ],
+        )
+        claimed = JobQueue.claim(session, resource_class="generation", worker_id="worker-gen", lease_seconds=1)
+        assert claimed is not None
+        claimed.lease_expires_at = utcnow() - datetime.timedelta(seconds=1)
+        session.commit()
+
+        assert JobQueue.recover_expired_leases(session) == 1
+
+        refreshed_job = session.get(Job, job.id)
+        assert refreshed_job is not None
+        assert refreshed_job.status == "failed"
+        assert refreshed_job.failed_items == 1
+
+    def test_only_lease_owner_can_retry_or_fail_work(self):
+        session = create_in_memory_session()
+        JobQueue.create_job(
+            session=session,
+            job_type="channel_ingest",
+            initial_work_items=[{"stage": "summarize", "resource_class": "generation", "item_key": "vid-1"}],
+        )
+        claimed = JobQueue.claim(session, resource_class="generation", worker_id="owner")
+        assert claimed is not None
+
+        with pytest.raises(ValueError, match="no longer leased"):
+            JobQueue.retry(session, claimed.id, worker_id="other")
+        with pytest.raises(ValueError, match="no longer leased"):
+            JobQueue.fail(session, claimed.id, worker_id="other")
+
+        refreshed = session.get(WorkItem, claimed.id)
+        assert refreshed is not None
+        assert refreshed.status == "leased"
+        assert refreshed.lease_owner == "owner"
 
     def test_get_job_progress(self):
         session = create_in_memory_session()

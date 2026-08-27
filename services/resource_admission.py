@@ -167,7 +167,9 @@ class ResourceAdmission:
         Returns the scheduled datetime when the caller is permitted to start.
         """
         now = utcnow()
-        rate_limit = session.get(ExternalRateLimit, provider_key)
+        rate_limit = session.scalar(
+            select(ExternalRateLimit).where(ExternalRateLimit.provider_key == provider_key).with_for_update()
+        )
         if not rate_limit:
             rate_limit = ExternalRateLimit(
                 provider_key=provider_key,

@@ -7,6 +7,8 @@ dual-write projection to legacy summaries_v2 table.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import uuid
@@ -278,39 +280,33 @@ class SummaryService:
 
         now = utcnow()
 
-        # 1. Upsert SummaryRun
-        existing_run = session.scalar(
-            select(SummaryRun).where(
-                SummaryRun.video_id == video_id,
-                SummaryRun.model_name == model_name,
-                SummaryRun.reasoning_effort == reasoning_effort,
-            )
+        # 1. Append an immutable generation record. Re-summarization must retain
+        # prior output and reasoning for auditability and comparison.
+        profile = {
+            "model_name": model_name,
+            "reasoning_effort": reasoning_effort,
+            "system_prompt": SUMMARIZER_SYSTEM_PROMPT,
+            "schema": StructuredSummaryV3.model_json_schema(),
+            "temperature": 0.1,
+        }
+        generation_profile_hash = hashlib.sha256(
+            json.dumps(profile, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        summary_run = SummaryRun(
+            id=str(uuid.uuid4()),
+            video_id=video_id,
+            model_name=model_name,
+            reasoning_effort=reasoning_effort,
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            reasoning_tokens=usage.get("reasoning_tokens", 0),
+            generation_profile_hash=generation_profile_hash,
+            structured_summary=summary.model_dump(),
+            reasoning_output=reasoning_output,
+            status="completed",
+            created_at=now,
         )
-
-        if not existing_run:
-            run_id = str(uuid.uuid4())
-            summary_run = SummaryRun(
-                id=run_id,
-                video_id=video_id,
-                model_name=model_name,
-                reasoning_effort=reasoning_effort,
-                prompt_tokens=usage.get("prompt_tokens", 0),
-                completion_tokens=usage.get("completion_tokens", 0),
-                reasoning_tokens=usage.get("reasoning_tokens", 0),
-                structured_summary=summary.model_dump(),
-                reasoning_output=reasoning_output,
-                status="completed",
-                created_at=now,
-            )
-            session.add(summary_run)
-        else:
-            summary_run = existing_run
-            summary_run.prompt_tokens = usage.get("prompt_tokens", 0)
-            summary_run.completion_tokens = usage.get("completion_tokens", 0)
-            summary_run.reasoning_tokens = usage.get("reasoning_tokens", 0)
-            summary_run.structured_summary = summary.model_dump()
-            summary_run.reasoning_output = reasoning_output
-            summary_run.status = "completed"
+        session.add(summary_run)
 
         # 2. Dual-write legacy SummariesV2 projection
         legacy_fields = project_summary_to_legacy_fields(summary)

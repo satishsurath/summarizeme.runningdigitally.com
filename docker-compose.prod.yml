@@ -199,7 +199,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["python", "workers/main.py", "--stages", "discovery,finalize", "--poll-interval", "1.0"]
+    command: ["python", "workers/main.py", "--resource-class", "control", "--poll-interval-seconds", "1.0"]
     restart: unless-stopped
     deploy:
       resources:
@@ -217,7 +217,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["python", "workers/main.py", "--stages", "transcript", "--poll-interval", "1.0"]
+    command: ["python", "workers/main.py", "--resource-class", "youtube", "--poll-interval-seconds", "1.0"]
     restart: unless-stopped
     deploy:
       resources:
@@ -239,7 +239,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["python", "workers/main.py", "--stages", "summarize", "--poll-interval", "1.0"]
+    command: ["python", "workers/main.py", "--resource-class", "generation", "--poll-interval-seconds", "1.0"]
     restart: unless-stopped
     deploy:
       resources:
@@ -261,7 +261,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["python", "workers/main.py", "--stages", "embed_transcript,embed_summary", "--poll-interval", "1.0"]
+    command: ["python", "workers/main.py", "--resource-class", "embedding", "--poll-interval-seconds", "1.0"]
     restart: unless-stopped
     deploy:
       resources:

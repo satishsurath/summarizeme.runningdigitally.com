@@ -90,4 +90,4 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
-    command: python workers/main.py --poll-interval 1.0
+    command: python workers/main.py --resource-class all --poll-interval-seconds 1.0

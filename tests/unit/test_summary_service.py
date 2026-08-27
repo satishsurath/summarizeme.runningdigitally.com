@@ -143,3 +143,14 @@ class TestSummaryService:
         sr = session.scalar(select(SummaryRun).where(SummaryRun.video_id == "vid_persisted"))
         assert sr is not None
         assert sr.model_name == "nemo-qwen3.8-27b-nvfp4"
+        assert sr.generation_profile_hash is not None
+
+        second_run, _ = SummaryService.generate_and_persist_summary(
+            session=session,
+            video_id="vid_persisted",
+            model_name="nemo-qwen3.8-27b-nvfp4",
+            reasoning_effort="medium",
+        )
+        all_runs = session.scalars(select(SummaryRun).where(SummaryRun.video_id == "vid_persisted")).all()
+        assert len(all_runs) == 2
+        assert second_run.id != sr.id

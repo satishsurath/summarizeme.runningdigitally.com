@@ -13,9 +13,10 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from db.models import Job, WorkItem, utcnow
+from db.models import Job, WorkItem, ensure_utc, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,19 @@ class JobQueue:
                 )
                 session.add(wi)
 
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            if not idempotency_key:
+                raise
+            # A concurrent request inserted this key after the initial lookup.
+            # Return the canonical job rather than surfacing a 500 to a retried
+            # client request.
+            existing = session.scalar(select(Job).where(Job.idempotency_key == idempotency_key))
+            if existing:
+                return existing
+            raise
         logger.info("Created job %s (%s) with %d work items", job_id, job_type, len(initial_work_items or []))
         return job
 
@@ -152,7 +165,14 @@ class JobQueue:
         """Renew the lease on an active work item (heartbeat)."""
         now = utcnow()
         item = session.get(WorkItem, work_item_id)
-        if not item or item.status != "leased" or item.lease_owner != worker_id:
+        lease_expiry = ensure_utc(item.lease_expires_at) if item and item.lease_expires_at else None
+        if (
+            not item
+            or item.status != "leased"
+            or item.lease_owner != worker_id
+            or not lease_expiry
+            or lease_expiry <= now
+        ):
             return False
 
         item.lease_expires_at = now + datetime.timedelta(seconds=lease_seconds)
@@ -173,7 +193,8 @@ class JobQueue:
         item = session.get(WorkItem, work_item_id)
         if not item:
             raise ValueError(f"Work item {work_item_id} not found")
-        if item.status != "leased" or item.lease_owner != worker_id:
+        lease_expiry = ensure_utc(item.lease_expires_at) if item.lease_expires_at else None
+        if item.status != "leased" or item.lease_owner != worker_id or not lease_expiry or lease_expiry <= now:
             raise ValueError(
                 f"Work item {work_item_id} is no longer leased by {worker_id} "
                 f"(status={item.status}, owner={item.lease_owner})"
@@ -212,8 +233,8 @@ class JobQueue:
                         )
                         .on_conflict_do_nothing(index_elements=["job_id", "stage", "item_key"])
                     )
-                    result = session.execute(stmt)
-                    if result.rowcount:
+                    insert_result = session.execute(stmt)
+                    if insert_result.rowcount:
                         job.total_items += 1
 
             JobQueue._evaluate_job_completion(session, job)
@@ -238,6 +259,9 @@ class JobQueue:
         item = session.get(WorkItem, work_item_id)
         if not item:
             raise ValueError(f"Work item {work_item_id} not found")
+        lease_expiry = ensure_utc(item.lease_expires_at) if item.lease_expires_at else None
+        if item.status != "leased" or item.lease_owner != worker_id or not lease_expiry or lease_expiry <= now:
+            raise ValueError(f"Work item {work_item_id} is no longer leased by {worker_id}")
 
         item.last_error_code = error_code
         item.last_error_message = error_message
@@ -286,6 +310,9 @@ class JobQueue:
         item = session.get(WorkItem, work_item_id)
         if not item:
             raise ValueError(f"Work item {work_item_id} not found")
+        lease_expiry = ensure_utc(item.lease_expires_at) if item.lease_expires_at else None
+        if item.status != "leased" or item.lease_owner != worker_id or not lease_expiry or lease_expiry <= now:
+            raise ValueError(f"Work item {work_item_id} is no longer leased by {worker_id}")
 
         item.status = "failed"
         item.last_error_code = error_code
@@ -324,8 +351,13 @@ class JobQueue:
         if resource_class:
             stmt = stmt.where(WorkItem.resource_class == resource_class)
 
+        bind = session.get_bind()
+        if bind and bind.dialect.name == "postgresql":
+            stmt = stmt.with_for_update(skip_locked=True)
+
         expired_items = session.scalars(stmt).all()
         recovered_count = 0
+        affected_jobs: dict[str, Job] = {}
 
         for item in expired_items:
             logger.warning(
@@ -345,13 +377,20 @@ class JobQueue:
                 item.completed_at = now
                 if item.job:
                     item.job.failed_items += 1
+                    item.job.updated_at = now
+                    affected_jobs[item.job.id] = item.job
             else:
                 item.status = "retry"
                 item.available_at = now
+                if item.job:
+                    item.job.updated_at = now
+                    affected_jobs[item.job.id] = item.job
 
             recovered_count += 1
 
         if recovered_count > 0:
+            for job in affected_jobs.values():
+                JobQueue._evaluate_job_completion(session, job)
             session.commit()
 
         return recovered_count

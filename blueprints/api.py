@@ -9,6 +9,8 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy.exc import IntegrityError
 
 from app_config import (
+    ASYNC_PIPELINE_ENABLED,
+    DEFAULT_GEN_MODEL,
     VLLM_EMBED_URL,
     VLLM_GEN_URL,
     SessionLocal,
@@ -25,6 +27,7 @@ from app_config import (
 )
 from db.models import SummariesV2, Video, VideoFolder
 from prompts import SYSTEM_PROMPT_SUMMARIZER
+from services.contracts import ReasoningEffort
 from services.job_queue import JobQueue
 from services.model_registry import ModelRegistryService
 
@@ -39,7 +42,33 @@ def api_channel_start():
     if not data or "channel_url" not in data:
         return jsonify({"status": "error", "message": "No channel_url provided"}), 400
 
-    channel_url = data["channel_url"].strip()
+    raw_channel_url = data["channel_url"]
+    if not isinstance(raw_channel_url, str):
+        return jsonify({"status": "error", "message": "channel_url must be a string"}), 400
+    channel_url = raw_channel_url.strip()
+    if not channel_url:
+        return jsonify({"status": "error", "message": "No channel_url provided"}), 400
+
+    if ASYNC_PIPELINE_ENABLED:
+        idempotency_key = request.headers.get("Idempotency-Key")
+        with SessionLocal() as session:
+            job = JobQueue.create_job(
+                session=session,
+                job_type="channel_ingest",
+                payload={"channel_url": channel_url},
+                idempotency_key=idempotency_key,
+                initial_work_items=[
+                    {
+                        "stage": "discover",
+                        "resource_class": "control",
+                        "item_key": channel_url,
+                        "payload": {"channel_url": channel_url},
+                    }
+                ],
+            )
+            job_id = job.id
+        return jsonify({"status": "initiated", "task_id": job_id})
+
     task_id = task_store.create_task("download", {"channel_url": channel_url})
 
     def run_download():
@@ -147,15 +176,58 @@ def api_get_videos(channel_name):
 def api_summarize_v2():
     """Generate a v2 summary for multiple videos."""
     data = request.get_json() or {}
-    channel_name = data.get("channel_name", "").strip()
+    raw_channel_name = data.get("channel_name", "")
+    channel_name = raw_channel_name.strip() if isinstance(raw_channel_name, str) else ""
     video_ids = data.get("video_ids", [])
-    model_name = data.get("model_name") or data.get("model") or "nemo-qwen3.6-35b-a3b-nvfp4"
+    model_name = data.get("model_name") or data.get("model") or DEFAULT_GEN_MODEL
+    reasoning_effort = data.get("reasoning_effort", ReasoningEffort.MEDIUM)
 
-    if not channel_name or not video_ids:
+    if not channel_name or not isinstance(video_ids, list) or not video_ids:
         return jsonify({"status": "error", "message": "channel_id or video_ids missing"}), 400
 
     if len(video_ids) > 50:
         return jsonify({"status": "error", "message": "Maximum 50 videos per request"}), 400
+
+    if not all(isinstance(video_id, str) and video_id.strip() for video_id in video_ids):
+        return jsonify({"status": "error", "message": "video_ids must contain non-empty strings"}), 400
+    if len(set(video_ids)) != len(video_ids):
+        return jsonify({"status": "error", "message": "video_ids must be unique"}), 400
+    if not isinstance(model_name, str) or not model_name.strip():
+        return jsonify({"status": "error", "message": "model_name must be a non-empty string"}), 400
+
+    if reasoning_effort not in {effort.value for effort in ReasoningEffort}:
+        return jsonify({"status": "error", "message": "Unsupported reasoning_effort"}), 400
+
+    if ASYNC_PIPELINE_ENABLED:
+        idempotency_key = request.headers.get("Idempotency-Key")
+        initial_work_items = [
+            {
+                "stage": "summarize",
+                "resource_class": "generation",
+                "item_key": video_id,
+                "payload": {
+                    "video_id": video_id,
+                    "model_name": model_name,
+                    "reasoning_effort": reasoning_effort,
+                },
+            }
+            for video_id in video_ids
+        ]
+        with SessionLocal() as session:
+            job = JobQueue.create_job(
+                session=session,
+                job_type="summarize",
+                payload={
+                    "channel_name": channel_name,
+                    "video_ids": video_ids,
+                    "model_name": model_name,
+                    "reasoning_effort": reasoning_effort,
+                },
+                idempotency_key=idempotency_key,
+                initial_work_items=initial_work_items,
+            )
+            job_id = job.id
+        return jsonify({"status": "initiated", "task_id": job_id})
 
     task_id = task_store.create_task(
         "summarize",

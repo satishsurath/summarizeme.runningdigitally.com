@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app_config import YT_MIN_START_INTERVAL_SECONDS
+from app_config import YT_MIN_START_INTERVAL_SECONDS, YT_START_JITTER_SECONDS
 from db.models import ensure_utc, utcnow
 from services.resource_admission import ResourceAdmission
 from services.youtube_acquisition import YouTubeAcquisitionService
@@ -37,7 +37,7 @@ def handle_transcript(payload: dict[str, Any], session: Session) -> dict[str, An
         session=session,
         provider_key="youtube",
         min_interval_seconds=YT_MIN_START_INTERVAL_SECONDS,
-        jitter_seconds=3,
+        jitter_seconds=YT_START_JITTER_SECONDS,
     )
     now = utcnow()
     scheduled_utc = ensure_utc(scheduled_start)

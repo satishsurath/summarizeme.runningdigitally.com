@@ -256,7 +256,6 @@ class SummaryRun(Base):
 
     __tablename__ = "summary_runs"
     __table_args__ = (
-        UniqueConstraint("video_id", "model_name", "reasoning_effort", name="uq_summary_runs_video_model_effort"),
         Index("ix_summary_runs_video_id", "video_id"),
         Index("ix_summary_runs_created_at", "created_at"),
     )
