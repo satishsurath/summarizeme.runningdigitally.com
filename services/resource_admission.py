@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_LIMITS: dict[str, int] = {
     "generation": GEN_APP_MAX_IN_FLIGHT,  # 3 total (2 batch + 1 interactive)
     "generation_batch": GEN_BATCH_CONCURRENCY,  # 2 batch max
+    "generation_interactive": 1,  # 1 interactive reserve
     "embedding": EMBED_IN_FLIGHT_BATCHES,  # 1 in-flight batch
     "youtube": YT_MAX_IN_FLIGHT,  # 2 in-flight subprocesses
     "control": 1,
@@ -79,10 +80,18 @@ class ResourceAdmission:
         limit_row = session.scalar(
             select(ResourceLimit).where(ResourceLimit.resource_class == resource_class).with_for_update()
         )
-        if limit_row and hasattr(limit_row, "max_in_flight") and isinstance(limit_row.max_in_flight, int):
-            max_in_flight = limit_row.max_in_flight
-        else:
+        if not limit_row:
             max_in_flight = DEFAULT_LIMITS.get(resource_class, 1)
+            limit_row = ResourceLimit(
+                resource_class=resource_class,
+                max_in_flight=max_in_flight,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(limit_row)
+            session.flush()
+        else:
+            max_in_flight = limit_row.max_in_flight
 
         # 3. Count active leases
         raw_count = (

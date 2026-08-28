@@ -563,6 +563,29 @@ def api_chat_channel_stream(channel_name):
                     emb_literal = "ARRAY[" + ",".join(str(float(x)) for x in user_query_emb) + "]::vector"
                     raw_sql = raw_sql.replace(":q_emb", emb_literal)
                     chunk_rows = session.execute(text(raw_sql), {"chan": channel_name}).fetchall()
+        channel_videos = []
+        if not retrieved_chunks and not chunk_rows:
+            v_stmt = (
+                select(Video.video_id, Video.title, Video.transcript_no_ts)
+                .join(VideoFolder, VideoFolder.video_id == Video.video_id)
+                .where(
+                    (VideoFolder.folder_name == channel_name) | (VideoFolder.original_playlist_id == channel_name),
+                    Video.transcript_no_ts.isnot(None),
+                    Video.transcript_no_ts != "",
+                )
+                .limit(5)
+            )
+            channel_videos = session.execute(v_stmt).fetchall()
+            if not channel_videos:
+                direct_v = session.execute(
+                    select(Video.video_id, Video.title, Video.transcript_no_ts).where(
+                        Video.video_id == channel_name,
+                        Video.transcript_no_ts.isnot(None),
+                        Video.transcript_no_ts != "",
+                    )
+                ).fetchall()
+                if direct_v:
+                    channel_videos = direct_v
     except Exception as e:
         err_msg = str(e)
         logger.exception("DB query error in chat-channel stream:")
@@ -602,7 +625,7 @@ def api_chat_channel_stream(channel_name):
             yield f"event: sources\ndata: {json.dumps({'sources': sources_payload})}\n\n"
             sys.stdout.flush()
 
-        has_content = bool(retrieved_chunks) or bool(chunk_rows)
+        has_content = bool(retrieved_chunks) or bool(chunk_rows) or bool(channel_videos)
         if not has_content:
             no_content = (
                 "No relevant content found for this channel and data type. Try selecting 'Automatic' or 'Transcript'."
@@ -611,14 +634,15 @@ def api_chat_channel_stream(channel_name):
             return
 
         gen_session = SessionLocal()
-        lease_id = ResourceAdmission.acquire_lease(
-            session=gen_session,
-            resource_class="generation_interactive",
-            owner=f"chat-{user_email}",
-            lease_seconds=60,
-        )
-
+        lease_id = None
         try:
+            lease_id = ResourceAdmission.acquire_lease(
+                session=gen_session,
+                resource_class="generation_interactive",
+                owner=f"chat-{user_email}",
+                lease_seconds=60,
+            )
+
             context_pieces = []
             unique_videos = {}
 
@@ -626,13 +650,20 @@ def api_chat_channel_stream(channel_name):
                 for c in retrieved_chunks:
                     context_pieces.append(f"Retrieved Chunk: {c['text']}")
                     unique_videos[c["video_id"]] = c["video_id"]
-            else:
+            elif chunk_rows:
                 for row in chunk_rows:
                     chunk_text = row[0]
                     chunk_vid_id = row[1]
                     chunk_vid_title = row[2]
                     context_pieces.append(f"Chunk (similarity={row[3]:.4f}): {chunk_text}")
                     unique_videos[chunk_vid_id] = chunk_vid_title
+            elif channel_videos:
+                for vid_row in channel_videos:
+                    v_id = str(vid_row[0])
+                    v_title = str(vid_row[1] or v_id)
+                    v_trans = str(vid_row[2])
+                    context_pieces.append(f"Transcript for '{v_title}' ({v_id}):\n{v_trans[:4000]}")
+                    unique_videos[v_id] = v_title
 
             context_for_generation = "\n\n".join(context_pieces)
             prompt_str = build_chat_prompt(context_for_generation, user_query)
@@ -857,14 +888,15 @@ def api_chat_video_stream(video_id):
             return
 
         gen_session = SessionLocal()
-        lease_id = ResourceAdmission.acquire_lease(
-            session=gen_session,
-            resource_class="generation_interactive",
-            owner=f"chat-{user_email}",
-            lease_seconds=60,
-        )
-
+        lease_id = None
         try:
+            lease_id = ResourceAdmission.acquire_lease(
+                session=gen_session,
+                resource_class="generation_interactive",
+                owner=f"chat-{user_email}",
+                lease_seconds=60,
+            )
+
             context_pieces = []
             if retrieved_chunks:
                 for c in retrieved_chunks:
