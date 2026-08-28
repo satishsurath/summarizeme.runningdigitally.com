@@ -89,20 +89,20 @@ class TaskStore:
         if redis_client is not None:
             self._client = redis_client
         else:
-            redis_url = "redis://localhost:6379/0"
             env_url = __import__("os").environ.get("REDIS_URL")
             if env_url:
-                redis_url = env_url
-            try:
-                self._client = redis.from_url(redis_url, decode_responses=True)
-                self._client.ping()
-                logger.info("TaskStore connected to Redis at %s", redis_url)
-            except Exception as e:
-                logger.warning(
-                    "Redis unavailable at %s (%s); falling back to thread-safe in-memory task store",
-                    redis_url,
-                    e,
-                )
+                try:
+                    self._client = redis.from_url(env_url, decode_responses=True)
+                    self._client.ping()
+                    logger.info("TaskStore connected to Redis at %s", env_url)
+                except Exception as e:
+                    logger.warning(
+                        "Redis unavailable at %s (%s); falling back to thread-safe in-memory task store",
+                        env_url,
+                        e,
+                    )
+                    self._client = _InMemoryTaskStore()
+            else:
                 self._client = _InMemoryTaskStore()
 
     @classmethod

@@ -126,6 +126,27 @@ class TestChatStreamingRoutes:
         assert "event: error" in data
         assert "Invalid data type" in data
 
+    @patch("blueprints.chat.RetrievalService.retrieve_context", return_value=[])
+    @patch("blueprints.chat.vllm_embed_chunk", return_value=[0.1, 0.2, 0.3])
+    @patch("blueprints.chat.SessionLocal")
+    @patch("auth_utils.get_user_email_dev_mode", return_value="dev@localhost")
+    def test_chat_channel_stream_automatic_data_type(
+        self, mock_user, mock_session_local, mock_embed, mock_retrieve, chat_app
+    ):
+        """data_type='automatic' should be accepted as valid and emit done event when no content."""
+        mock_session = MagicMock()
+        mock_session.execute.return_value.fetchall.return_value = []
+        mock_session_local.return_value = mock_session
+        client = chat_app.test_client()
+        resp = client.post(
+            "/api/chat-channel/test-channel/stream",
+            json={"query": "what is this?", "data_type": "automatic"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_data(as_text=True)
+        assert "Invalid data type" not in data
+        assert "event: done" in data
+
     @patch("blueprints.chat.vllm_embed_chunk", return_value=[0.1, 0.2, 0.3])
     @patch("blueprints.chat.SessionLocal")
     @patch("auth_utils.get_user_email_dev_mode", return_value="dev@localhost")

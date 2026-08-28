@@ -4,11 +4,11 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install dependencies
-COPY frontend/package.json frontend/package-lock.json* ./
+COPY package.json package-lock.json* ./
 RUN npm ci
 
 # Copy source
-COPY frontend/ ./
+COPY . ./
 
 # Build
 # Default matches the in-container Flask address used by docker-compose;

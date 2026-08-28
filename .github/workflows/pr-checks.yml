@@ -126,6 +126,34 @@ jobs:
           DATABASE_URL: postgresql://summarizeme:summarizeme_pass@localhost:${{ job.services.postgres.ports[5432] }}/summarizeme_test
         run: pytest tests/integration/test_pgai.py -v --cov=app --cov-report=xml
 
+  frontend-checks:
+    name: Frontend Checks (tsc + build)
+    runs-on: "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'summarizeme-pr' }}"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript typecheck
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Next.js build
+        working-directory: frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+
   docker-build:
     name: Docker Build
     # Fork PR code stays on GitHub-hosted capacity; repository PRs use Micro.
@@ -137,7 +165,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Validate Dockerfile
-        run: docker build -t summarizeme:test .
-      - name: Check container import
-        run: docker run --rm -e DATABASE_URL=postgresql://ignored -e DEV_AUTH_ENABLED=true summarizeme:test python -c "import app; print('OK')"
+      - name: Validate Production Flask Dockerfile
+        run: docker build -t summarizeme:prod .
+
+      - name: Check Flask container import
+        run: docker run --rm -e DATABASE_URL=postgresql://ignored -e DEV_AUTH_ENABLED=true summarizeme:prod python -c "import app; print('App OK')"
+
+      - name: Check Worker container import
+        run: docker run --rm -e DATABASE_URL=postgresql://ignored -e DEV_AUTH_ENABLED=true summarizeme:prod python -c "import workers.main; print('Worker OK')"
+
+      - name: Validate Dev Dockerfile
+        run: docker build -f Dockerfile.dev -t summarizeme:dev .
+
+      - name: Validate Frontend Dockerfile
+        run: docker build -f Dockerfile.frontend -t summarizeme:frontend ./frontend

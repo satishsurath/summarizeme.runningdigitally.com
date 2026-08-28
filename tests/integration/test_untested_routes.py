@@ -102,7 +102,7 @@ class TestApiChannelStart:
             data = json.loads(resp.data)
             assert "task_id" in data
             assert data["status"] == "initiated"
-            assert data["task_id"].startswith("dl_")
+            assert str(uuid.UUID(data["task_id"])) == data["task_id"]
 
 
 class TestApiChannelStatus:

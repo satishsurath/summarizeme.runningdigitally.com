@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { listChannels, renameChannel, deleteChannel, refreshChannel, startChannelDownload } from "@/lib/api";
 import type { ChannelMeta } from "@/lib/api";
+import { ModelRegistryAdmin } from "@/components/ModelRegistryAdmin";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -248,35 +249,68 @@ export default function AdminPage() {
     }
   };
 
+  const [adminTab, setAdminTab] = useState<"channels" | "models">("channels");
+
   // Validation
   const addValid = newUrl.trim().length > 0;
   const renameValid = newName.trim().length > 0 && newName.trim() !== editingChannel?.folder_name;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-5xl mx-auto px-4 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Admin</h1>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium text-sm transition-colors flex items-center gap-2"
-        >
-          <PlusIcon className="w-4 h-4" />
-          Add Channel
-        </button>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Admin Console</h1>
+          <div className="flex gap-2 mt-2">
+            <button
+              type="button"
+              onClick={() => setAdminTab("channels")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                adminTab === "channels"
+                  ? "bg-blue-600 text-white shadow-2xs"
+                  : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+            >
+              📺 Channels Management
+            </button>
+            <button
+              type="button"
+              onClick={() => setAdminTab("models")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                adminTab === "models"
+                  ? "bg-blue-600 text-white shadow-2xs"
+                  : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+            >
+              🧠 AI Models & Serving Topology
+            </button>
+          </div>
+        </div>
+        {adminTab === "channels" && (
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium text-sm transition-colors flex items-center gap-2 cursor-pointer"
+          >
+            <PlusIcon className="w-4 h-4" />
+            Add Channel
+          </button>
+        )}
       </div>
 
-      {/* Channel list */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg divide-y divide-gray-200 dark:divide-gray-700">
-        {loading ? (
-          <div className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-            Loading...
-          </div>
-        ) : channels.length === 0 ? (
-          <div className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-            No channels. Add one to get started.
-          </div>
-        ) : (
+      {adminTab === "models" ? (
+        <ModelRegistryAdmin />
+      ) : (
+        /* Channel list */
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg divide-y divide-gray-200 dark:divide-gray-700">
+          {loading ? (
+            <div className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+              Loading...
+            </div>
+          ) : channels.length === 0 ? (
+            <div className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+              No channels. Add one to get started.
+            </div>
+          ) : (
           channels.map((ch) => (
             <div key={ch.folder_name} className="flex items-center gap-4 px-6 py-4">
               <div className="flex-1">
@@ -325,6 +359,7 @@ export default function AdminPage() {
           ))
         )}
       </div>
+      )}
 
       {/* Add channel modal */}
       {showAddModal && (

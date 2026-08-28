@@ -21,18 +21,28 @@ const ALLOWED_TAGS = new Set([
 
 const VOID_TAGS = new Set(["br", "hr", "img"]);
 
-const ALLOWED_ATTRS: Record<string, Set<string>> = {
-  a: new Set(["href", "title", "target", "rel", "class"]),
-  div: new Set(["class"]),
-  span: new Set(["class"]),
-  img: new Set(["src", "alt", "title", "class"]),
-  svg: new Set(["viewbox", "viewBox", "width", "height", "xmlns", "xlink:href", "fill", "stroke", "class"]),
-  path: new Set(["d", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "class"]),
-  td: new Set(["colspan", "rowspan", "class"]),
-  th: new Set(["colspan", "rowspan", "class"]),
+const GLOBAL_ALLOWED_ATTRS = new Set(["class"]);
+
+const TAG_SPECIFIC_ATTRS: Record<string, Set<string>> = {
+  a: new Set(["href", "title", "target", "rel"]),
+  img: new Set(["src", "alt", "title", "width", "height"]),
+  th: new Set(["colspan", "rowspan", "scope"]),
+  td: new Set(["colspan", "rowspan"]),
+  svg: new Set(["viewbox", "viewBox", "width", "height", "fill", "stroke"]),
+  path: new Set(["d", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"]),
 };
 
-const STRIP_TAGS = new Set(["script", "iframe", "object", "embed", "form", "input", "button", "style", "link", "meta"]);
+function isAttributeAllowed(tagName: string, attrName: string): boolean {
+  if (GLOBAL_ALLOWED_ATTRS.has(attrName)) return true;
+  const specific = TAG_SPECIFIC_ATTRS[tagName];
+  return specific ? specific.has(attrName) : false;
+}
+
+const STRIP_TAGS = new Set([
+  "script", "iframe", "object", "embed", "form", "input", "button",
+  "style", "link", "meta", "base", "noscript", "template", "svg:script",
+  "set", "animate", "animateMotion", "animateTransform", "foreignObject",
+]);
 
 function escapeText(text: string): string {
   return text
@@ -52,10 +62,27 @@ function escapeAttr(value: string): string {
 }
 
 function isDangerousUrl(url: string): boolean {
-  const trimmed = url.trim().toLowerCase().replace(/[\x00-\x20]/g, "");
-  if (trimmed.startsWith("javascript:") || trimmed.startsWith("vbscript:")) return true;
-  if (trimmed.startsWith("data:") && !trimmed.startsWith("data:image/")) return true;
-  return false;
+  if (!url) return true;
+  const trimmed = url.trim().toLowerCase().replace(/[\x00-\x20\s]/g, "");
+  if (
+    trimmed.startsWith("javascript:") ||
+    trimmed.startsWith("vbscript:") ||
+    trimmed.startsWith("data:")
+  ) {
+    return true;
+  }
+  // Safe protocols: http, https, mailto, relative path or anchor
+  if (
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("#") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("mailto:")
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -167,8 +194,7 @@ export function sanitizeHtml(html: string): string {
         if (isUrlAttr && isDangerousUrl(attr.value)) continue;
 
         // Only keep allowed attributes
-        const allowedForTag = ALLOWED_ATTRS[tagName];
-        if (!allowedForTag || allowedForTag.has(attr.name)) {
+        if (isAttributeAllowed(tagName, attr.name)) {
           if (attr.value) {
             attrs += ` ${attr.name}="${escapeAttr(attr.value)}"`;
           } else {

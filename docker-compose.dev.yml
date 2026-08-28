@@ -16,18 +16,6 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6381:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # vLLM for embeddings (nomic-embed-text)
-
   app:
     build:
       context: .
@@ -40,13 +28,10 @@ services:
       VLLM_EMBED_PORT: "8001"
       VLLM_GEN_HOST: ${VLLM_GEN_HOST:?set VLLM_GEN_HOST in .env}
       VLLM_GEN_PORT: "8000"
-      REDIS_URL: redis://redis:6379/0
       FLASK_ENV: development
       DEV_AUTH_ENABLED: "true"
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     volumes:
       - .:/app
@@ -54,8 +39,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
       target: builder
       args:
         NEXT_API_URL: http://app:5000
@@ -71,3 +56,26 @@ services:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
     command: ["npx", "next", "dev", "-p", "3000", "-H", "0.0.0.0"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      DATABASE_URL: postgresql://summarizeme:summarizeme_pass@db:5432/summarizeme
+      VLLM_EMBED_HOST: ${VLLM_EMBED_HOST:?set VLLM_EMBED_HOST in .env}
+      VLLM_EMBED_PORT: "8001"
+      VLLM_GEN_HOST: ${VLLM_GEN_HOST:?set VLLM_GEN_HOST in .env}
+      VLLM_GEN_PORT: "8000"
+      FLASK_ENV: development
+      DEV_AUTH_ENABLED: "true"
+      ASYNC_PIPELINE_ENABLED: "true"
+      PYTHONPATH: /app
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    command: python -m workers.main --resource-class all --poll-interval-seconds 1.0 --idle-exit-seconds 0
+

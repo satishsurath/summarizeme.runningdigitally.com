@@ -147,6 +147,50 @@ function TaskDetailModal({
               {task.updated_at ? new Date(task.updated_at * 1000).toLocaleString() : "N/A"}
             </p>
           </div>
+
+          <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+            {task.status !== "completed" && task.status !== "cancelled" && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const { cancelJob } = await import("@/lib/api");
+                  try {
+                    await cancelJob(task.task_id);
+                    onClose();
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 hover:bg-red-200 cursor-pointer"
+              >
+                Cancel Job
+              </button>
+            )}
+            {task.errors && task.errors.length > 0 && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const { retryJob } = await import("@/lib/api");
+                  try {
+                    await retryJob(task.task_id);
+                    onClose();
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 hover:bg-amber-200 cursor-pointer"
+              >
+                Retry Failed Items
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

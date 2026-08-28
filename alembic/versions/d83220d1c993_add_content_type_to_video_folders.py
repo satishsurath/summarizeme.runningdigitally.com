@@ -23,12 +23,20 @@ def upgrade() -> None:
     """Upgrade schema."""
     # Server default so the add succeeds on non-empty tables; the ORM also
     # supplies "playlist" as a Python-side default.
-    op.add_column(
-        "video_folders",
-        sa.Column("content_type", sa.String(length=20), server_default="playlist", nullable=False),
-    )
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [c["name"] for c in inspector.get_columns("video_folders")]
+    if "content_type" not in columns:
+        op.add_column(
+            "video_folders",
+            sa.Column("content_type", sa.String(length=20), server_default="playlist", nullable=False),
+        )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_column("video_folders", "content_type")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [c["name"] for c in inspector.get_columns("video_folders")]
+    if "content_type" in columns:
+        op.drop_column("video_folders", "content_type")

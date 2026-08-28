@@ -10,7 +10,6 @@
 #   browser -> frontend (Next.js, :3000)
 #            -> app (Flask/gunicorn, :8000)  [direct API + SSE]
 #   app     -> db (PostgreSQL 17 + pgvector, named volume "pgdata")
-#   app     -> redis (task store + rate limits, named volume "redis-data", AOF)
 #   app     -> external vLLM (gen :8000, embed :8001)
 #
 # Usage:
@@ -22,8 +21,8 @@
 #   - .env file next to this compose file (see .env.example)
 #   - vLLM endpoints reachable from this host
 #
-# Data persistence: "pgdata" and "redis-data" are named Docker volumes on the
-# host (survive restarts, container rebuilds, and "compose down" without -v).
+# Data persistence: "pgdata" is a named Docker volume on the host (survives
+# restarts, container rebuilds, and "compose down" without -v).
 # NEVER run "compose down -v" on this stack — it deletes the database.
 
 name: summarizeme
@@ -40,12 +39,11 @@ services:
       - VLLM_GEN_HOST=${VLLM_GEN_HOST}
       - VLLM_GEN_PORT=${VLLM_GEN_PORT:-8000}
       - VLLM_GEN_API_KEY=${VLLM_GEN_API_KEY:-local-noauth}
-      - VLLM_GEN_MODEL=${VLLM_GEN_MODEL:-nemo-qwen3.6-35b-a3b-nvfp4}
+      - VLLM_GEN_MODEL=${VLLM_GEN_MODEL:-nemo-qwen3.8-27b-nvfp4}
       - VLLM_EMBED_HOST=${VLLM_EMBED_HOST}
       - VLLM_EMBED_PORT=${VLLM_EMBED_PORT:-8001}
       - VLLM_EMBED_API_KEY=${VLLM_EMBED_API_KEY:-local-noauth}
       - VLLM_EMBED_MODEL=${VLLM_EMBED_MODEL:-nemo-nomic-embed-text-v1.5}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-${FLASK_SECRET_KEY}}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
@@ -56,8 +54,6 @@ services:
       - backups:/app/backups
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -111,35 +107,10 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  redis:
-    image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: "512M"
-        reservations:
-          cpus: "0.25"
-          memory: "128M"
-    logging:
-      driver: json-file
-      options:
-        max-size: "5m"
-        max-file: "3"
-
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
       args:
         # Server-side target for the /api/* proxy route (in-container address).
         NEXT_API_URL: http://app:8000
@@ -188,10 +159,89 @@ services:
     command: ["sh", "-c", "alembic upgrade head && python run_vectorizers.py"]
     restart: "no"
 
+  worker-control:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ASYNC_PIPELINE_ENABLED=true
+      - AI_MODEL_REGISTRY_ENABLED=true
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "workers/main.py", "--resource-class", "control", "--poll-interval-seconds", "1.0"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512M"
+
+  worker-transcript:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ASYNC_PIPELINE_ENABLED=true
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "workers/main.py", "--resource-class", "youtube", "--poll-interval-seconds", "1.0"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "1G"
+
+  worker-summary:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - VLLM_GEN_HOST=${VLLM_GEN_HOST}
+      - VLLM_GEN_PORT=${VLLM_GEN_PORT:-8000}
+      - VLLM_GEN_API_KEY=${VLLM_GEN_API_KEY:-local-noauth}
+      - VLLM_GEN_MODEL=${VLLM_GEN_MODEL:-nemo-qwen3.8-27b-nvfp4}
+      - ASYNC_PIPELINE_ENABLED=true
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "workers/main.py", "--resource-class", "generation", "--poll-interval-seconds", "1.0"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "1G"
+
+  worker-embedding:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - VLLM_EMBED_HOST=${VLLM_EMBED_HOST}
+      - VLLM_EMBED_PORT=${VLLM_EMBED_PORT:-8001}
+      - VLLM_EMBED_API_KEY=${VLLM_EMBED_API_KEY:-local-noauth}
+      - VLLM_EMBED_MODEL=${VLLM_EMBED_MODEL:-nemo-nomic-embed-text-v1.5}
+      - ASYNC_PIPELINE_ENABLED=true
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "workers/main.py", "--resource-class", "embedding", "--poll-interval-seconds", "1.0"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "1G"
+
 volumes:
   pgdata:
-    driver: local
-  redis-data:
     driver: local
   backups:
     driver: local

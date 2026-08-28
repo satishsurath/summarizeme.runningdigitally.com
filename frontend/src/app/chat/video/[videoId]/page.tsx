@@ -1,14 +1,15 @@
-/**
- * Chat page — AI-powered Q&A over a single video.
- * Replaces templates/chat.html for video context.
- */
-
 "use client";
 
 import { useState, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { chatVideoStream } from "@/lib/api";
+import {
+  chatVideoStream,
+  listModels,
+  getUserPreference,
+  type ModelInfo,
+  type SourceReference,
+} from "@/lib/api";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { ThinkingBlock } from "@/components/ThinkingBlock";
 import { CopyMessageMenu } from "@/components/CopyMessageMenu";
@@ -56,6 +57,14 @@ function SparkleIcon({ className }: { className?: string }) {
   );
 }
 
+function PlayIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Message types
 // ---------------------------------------------------------------------------
@@ -72,20 +81,16 @@ interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
+  reasoning_content?: string;
+  sources?: SourceReference[];
   timestamp: string;
   formattedTime: string;
 }
-
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
 
 export default function ChatVideoPage() {
   const params = useParams();
   const videoId = params.videoId as string;
 
-  // Seed message uses empty times; the real timestamp is stamped client-side
-  // in the mount effect below to avoid an SSR/hydration mismatch.
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 0,
@@ -97,10 +102,33 @@ export default function ChatVideoPage() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [dataType, setDataType] = useState("comprehensive_notes");
-  const [modelName, setModelName] = useState("nemo-qwen3.6-35b-a3b-nvfp4");
+  const [dataType, setDataType] = useState("automatic");
+  const [modelName, setModelName] = useState("nemo-qwen3.8-27b-nvfp4");
+  const [reasoningEffort, setReasoningEffort] = useState("medium");
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [streamingMsgId, setStreamingMsgId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Load models and user preference
+  useEffect(() => {
+    listModels()
+      .then((res) => {
+        if (res.models && res.models.length > 0) {
+          setAvailableModels(res.models);
+          const defaultModel = res.models.find((m) => m.is_default);
+          if (defaultModel) setModelName(defaultModel.model_id);
+        }
+      })
+      .catch(() => { /* fallback */ });
+
+    getUserPreference()
+      .then((pref) => {
+        if (pref.preferred_gen_model) setModelName(pref.preferred_gen_model);
+        if (pref.preferred_reasoning_effort) setReasoningEffort(pref.preferred_reasoning_effort);
+      })
+      .catch(() => { /* fallback */ });
+  }, []);
 
   // Scroll to bottom on new messages or streaming updates
   useEffect(() => {
@@ -153,17 +181,41 @@ export default function ChatVideoPage() {
         dataType,
         modelName,
         {
-          onDelta: (delta: string) => {
+          onSources: (sources: SourceReference[]) => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === streamMsgId ? { ...m, sources } : m)),
+            );
+          },
+          onReasoningDelta: (delta: string) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamMsgId
+                  ? { ...m, reasoning_content: (m.reasoning_content || "") + delta }
+                  : m,
+              ),
+            );
+          },
+          onAnswerDelta: (delta: string) => {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === streamMsgId ? { ...m, content: m.content + delta } : m,
               ),
             );
           },
-          onDone: (answer: string) => {
+          onDone: (data) => {
+            if (data.conversation_id) {
+              setConversationId(data.conversation_id);
+            }
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === streamMsgId ? { ...m, content: answer, formattedTime: formatTime(new Date().toISOString()) } : m,
+                m.id === streamMsgId
+                  ? {
+                      ...m,
+                      content: data.answer || m.content,
+                      reasoning_content: data.thinking || m.reasoning_content,
+                      formattedTime: formatTime(new Date().toISOString()),
+                    }
+                  : m,
               ),
             );
             setStreamingMsgId(null);
@@ -179,6 +231,8 @@ export default function ChatVideoPage() {
             setStreamingMsgId(null);
           },
         },
+        conversationId,
+        reasoningEffort,
       );
     } catch (err: unknown) {
       setMessages((prev) =>
@@ -199,7 +253,7 @@ export default function ChatVideoPage() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] max-w-4xl mx-auto">
+    <div className="flex flex-col h-[calc(100vh-4rem)] max-w-5xl mx-auto">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <div className="flex items-center justify-between">
@@ -213,25 +267,57 @@ export default function ChatVideoPage() {
             ← Back
           </Link>
         </div>
-        <div className="flex items-center gap-3 mt-2">
-          <select
-            value={dataType}
-            onChange={(e) => setDataType(e.target.value)}
-            className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-xs"
-          >
-            <option value="comprehensive_notes">Comprehensive Notes</option>
-            <option value="concise_summary">Concise Summary</option>
-            <option value="key_topics">Key Topics</option>
-            <option value="important_takeaways">Important Takeaways</option>
-          </select>
-          <select
-            value={modelName}
-            onChange={(e) => setModelName(e.target.value)}
-            className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-xs"
-          >
-            <option value="nemo-qwen3.6-35b-a3b-nvfp4">Qwen 3.6 35B</option>
-            <option value="nemo-qwen2.5-72b-instruct">Qwen 2.5 72B</option>
-          </select>
+        <div className="flex flex-wrap items-center gap-3 mt-2">
+          <div>
+            <label className="text-[10px] uppercase font-bold text-gray-400 block mb-0.5">Grounding</label>
+            <select
+              value={dataType}
+              onChange={(e) => setDataType(e.target.value)}
+              className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-xs"
+            >
+              <option value="automatic">Automatic (Hybrid RRF)</option>
+              <option value="transcript">Full Transcript</option>
+              <option value="comprehensive_notes">Comprehensive Notes</option>
+              <option value="key_topics">Key Topics</option>
+              <option value="concise_summary">Concise Summary</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-bold text-gray-400 block mb-0.5">Model</label>
+            <select
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-xs font-mono"
+            >
+              {availableModels.length > 0 ? (
+                availableModels.map((m) => (
+                  <option key={m.model_id} value={m.model_id}>
+                    {m.display_name} ({m.family})
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="nemo-qwen3.8-27b-nvfp4">Qwen 3.8 27B</option>
+                  <option value="nemo-qwen3.5-35b-a3b-nvfp4">Qwen 3.5 35B</option>
+                </>
+              )}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-bold text-gray-400 block mb-0.5">Reasoning Effort</label>
+            <select
+              value={reasoningEffort}
+              onChange={(e) => setReasoningEffort(e.target.value)}
+              className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-xs"
+            >
+              <option value="disabled">Disabled (Fastest)</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium (Balanced)</option>
+              <option value="xhigh">Extra High (Deep Reasoning)</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -242,6 +328,7 @@ export default function ChatVideoPage() {
           const parsed = isAssistant
             ? parseThinkingContent(msg.content, msg.id === streamingMsgId)
             : null;
+          const displayThinking = msg.reasoning_content || parsed?.thinking;
 
           return (
             <div
@@ -254,26 +341,51 @@ export default function ChatVideoPage() {
                 </div>
               )}
               <div
-                className={`max-w-[80%] rounded-xl px-4 py-3 ${
+                className={`max-w-[85%] rounded-xl px-4 py-3 ${
                   msg.role === "user"
                     ? "bg-blue-500 text-white"
                     : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 }`}
               >
-                {isAssistant && parsed?.thinking && (
+                {isAssistant && displayThinking && (
                   <ThinkingBlock
-                    thinking={parsed.thinking}
-                    isStreaming={parsed.isThinkingActive}
+                    thinking={displayThinking}
+                    isStreaming={msg.id === streamingMsgId && !msg.content}
                   />
                 )}
                 {isAssistant ? (
                   <div
-                    className="text-sm leading-relaxed whitespace-pre-wrap"
-                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(parsed?.answer || "") }}
+                    className="text-sm leading-relaxed whitespace-pre-wrap font-sans"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(parsed?.answer || msg.content) }}
                   />
                 ) : (
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans">{msg.content}</div>
                 )}
+
+                {/* Grounding Source Citations */}
+                {isAssistant && msg.sources && msg.sources.length > 0 && (
+                  <div className="mt-3 pt-2 border-t border-black/5 dark:border-white/10">
+                    <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider block mb-1.5">
+                      Grounding Sources
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {msg.sources.map((s, idx) => (
+                        <a
+                          key={idx}
+                          href={s.youtube_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-[11px] font-mono hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
+                          title={s.excerpt}
+                        >
+                          <PlayIcon className="w-2.5 h-2.5" />
+                          {s.video_id} {s.start_seconds !== undefined ? `(${Math.floor(s.start_seconds)}s)` : ""}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between mt-2 pt-1 border-t border-black/5 dark:border-white/5 gap-4">
                   <span
                     className={`text-xs ${
@@ -284,7 +396,7 @@ export default function ChatVideoPage() {
                   </span>
                   <CopyMessageMenu
                     content={msg.content}
-                    thinking={parsed?.thinking}
+                    thinking={displayThinking}
                     answer={parsed?.answer || msg.content}
                     role={msg.role}
                   />
@@ -306,7 +418,7 @@ export default function ChatVideoPage() {
             <div className="bg-gray-100 dark:bg-gray-700 rounded-xl px-4 py-3">
               <div className="flex items-center gap-1.5">
                 <SparkleIcon className="w-4 h-4 text-purple-500 animate-pulse" />
-                <span className="text-sm text-gray-500 dark:text-gray-400">Thinking...</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Retrieving & generating...</span>
               </div>
             </div>
           </div>
@@ -324,14 +436,14 @@ export default function ChatVideoPage() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask a question..."
+            placeholder="Ask a question about this video..."
             className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             disabled={loading}
           />
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="px-6 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-6 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
             <SendIcon className="w-5 h-5" />
           </button>

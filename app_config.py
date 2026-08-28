@@ -6,6 +6,7 @@ Imported by both app.py and blueprint modules to avoid circular imports.
 import logging
 import os
 from functools import wraps
+from typing import Any
 
 import markdown
 from dotenv import load_dotenv
@@ -31,7 +32,33 @@ from summarizer_v2 import (  # noqa: F401  # re-exported for blueprints
 )
 from youtube_utils import download_channel_transcripts  # noqa: F401  # re-exported for blueprints
 
-DEFAULT_GEN_MODEL = os.getenv("VLLM_GEN_MODEL", "nemo-qwen3.6-35b-a3b-nvfp4")
+DEFAULT_GEN_MODEL = os.getenv("VLLM_GEN_MODEL", "nemo-qwen3.8-27b-nvfp4")
+DEFAULT_EMBED_MODEL = os.getenv("VLLM_EMBED_MODEL", "nemo-nomic-embed-text-v1.5")
+
+# Feature Flags
+ASYNC_PIPELINE_ENABLED = os.getenv("ASYNC_PIPELINE_ENABLED", "true").lower() in ("true", "1", "yes")
+AI_MODEL_REGISTRY_ENABLED = os.getenv("AI_MODEL_REGISTRY_ENABLED", "true").lower() in ("true", "1", "yes")
+AI_MODEL_REGISTRY_BOOTSTRAP_FROM_ENV = os.getenv("AI_MODEL_REGISTRY_BOOTSTRAP_FROM_ENV", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+
+# Concurrency & Admission Limits (authoritative Nemo hardware boundary)
+GEN_BATCH_CONCURRENCY = int(os.getenv("GEN_BATCH_CONCURRENCY", "2"))
+GEN_INTERACTIVE_RESERVE = int(os.getenv("GEN_INTERACTIVE_RESERVE", "1"))
+GEN_APP_MAX_IN_FLIGHT = int(os.getenv("GEN_APP_MAX_IN_FLIGHT", "3"))
+GEN_MAX_REQUEST_TOKENS = int(os.getenv("GEN_MAX_REQUEST_TOKENS", "262144"))
+
+# YouTube Pacing & Rate Limits
+YT_MAX_IN_FLIGHT = int(os.getenv("YT_MAX_IN_FLIGHT", "2"))
+YT_MIN_START_INTERVAL_SECONDS = int(os.getenv("YT_MIN_START_INTERVAL_SECONDS", "12"))
+YT_START_JITTER_SECONDS = int(os.getenv("YT_START_JITTER_SECONDS", "3"))
+
+# Embedding Batch Limits (Nomic vLLM envelope)
+EMBED_IN_FLIGHT_BATCHES = int(os.getenv("EMBED_IN_FLIGHT_BATCHES", "1"))
+EMBED_MAX_SEQUENCES = int(os.getenv("EMBED_MAX_SEQUENCES", "8"))
+EMBED_MAX_BATCH_TOKENS = int(os.getenv("EMBED_MAX_BATCH_TOKENS", "8192"))
 
 
 def md_safe(s):
@@ -56,7 +83,21 @@ if not (
     raise RuntimeError(
         f"DATABASE_URL must start with 'postgresql://' or 'postgresql+psycopg2://', got: {DB_URL[:50]}..."
     )
-engine = create_engine(DB_URL, echo=False, pool_pre_ping=True, pool_recycle=1800)  # 30 minutes
+engine_kwargs: dict[str, Any] = {
+    "echo": False,
+    "pool_pre_ping": True,
+    "pool_recycle": 1800,  # 30 minutes
+}
+if not DB_URL.startswith("sqlite"):
+    engine_kwargs.update(
+        {
+            "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+            "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+            "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        }
+    )
+
+engine = create_engine(DB_URL, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine)
 VLLM_EMBED_MODEL = os.getenv("VLLM_EMBED_MODEL", "nemo-nomic-embed-text-v1.5")
 

@@ -42,7 +42,7 @@ chat_tag = Tag(name="chat", description="Chat with channel or video content")
 health_tag = Tag(name="health", description="Health check endpoints")
 
 # ---------------------------------------------------------------------------
-# Rate limiting — uses Redis backend when available, in-memory fallback
+# Rate limiting — in-memory by default (Redis optional via REDIS_URL)
 # ---------------------------------------------------------------------------
 limiter = Limiter(
     app=app,
